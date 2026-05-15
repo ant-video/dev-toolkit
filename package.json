@@ -1,0 +1,14 @@
+{
+  "name": "dev-toolkit",
+  "version": "1.0.0",
+  "description": "程序员常用工具集 - 跨平台桌面应用",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@tauri-apps/cli": "^2"
+  }
+}
