@@ -1590,3 +1590,197 @@ fn detect_mime(data: &[u8]) -> String {
     }
     "application/octet-stream".to_string()
 }
+
+// ==================== 截图工具 ====================
+#[derive(Serialize)]
+pub struct ScreenshotResult {
+    pub success: bool,
+    pub image_data: String,       // base64 data URL
+    pub width: u32,
+    pub height: u32,
+    pub file_size: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct SaveImageResult {
+    pub success: bool,
+    pub file_path: String,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct CropInfo {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+// 截取当前窗口
+#[tauri::command]
+pub fn screenshot_window(_window: tauri::Window) -> ScreenshotResult {
+
+    // 通过前端 JS 捕获窗口内容，返回 base64
+    // 这里返回一个提示，告诉前端使用 navigator.mediaDevices.getDisplayMedia
+    ScreenshotResult {
+        success: false,
+        image_data: String::new(),
+        width: 0,
+        height: 0,
+        file_size: 0,
+        error: Some("请使用前端截图功能".to_string()),
+    }
+}
+
+// 截取指定区域（由前端传递区域坐标和截图数据）
+#[tauri::command]
+pub fn crop_image(base64_data: String, crop: CropInfo) -> ScreenshotResult {
+    use base64::prelude::BASE64_STANDARD;
+    use image::GenericImageView;
+    use std::fs;
+
+    // 解码 base64
+    let decoded = match BASE64_STANDARD.decode(&base64_data) {
+        Ok(d) => d,
+        Err(e) => return ScreenshotResult {
+            success: false,
+            image_data: String::new(),
+            width: 0,
+            height: 0,
+            file_size: 0,
+            error: Some(format!("Base64 解码失败: {}", e)),
+        },
+    };
+
+    // 尝试解码为图片
+    let mut img = match image::load_from_memory(&decoded) {
+        Ok(i) => i,
+        Err(e) => return ScreenshotResult {
+            success: false,
+            image_data: String::new(),
+            width: 0,
+            height: 0,
+            file_size: 0,
+            error: Some(format!("图片解码失败: {}", e)),
+        },
+    };
+
+    let (orig_w, orig_h) = img.dimensions();
+    let x = crop.x.min(orig_w.saturating_sub(1));
+    let y = crop.y.min(orig_h.saturating_sub(1));
+    let w = crop.width.min(orig_w.saturating_sub(x));
+    let h = crop.height.min(orig_h.saturating_sub(y));
+
+    if w == 0 || h == 0 {
+        return ScreenshotResult {
+            success: false,
+            image_data: String::new(),
+            width: 0,
+            height: 0,
+            file_size: 0,
+            error: Some("裁剪区域无效".to_string()),
+        };
+    }
+
+    // 裁剪
+    let cropped = img.crop(x, y, w, h);
+
+    // 保存到临时文件，然后读取
+    let temp_path = std::env::temp_dir().join("dev_toolkit_crop.png");
+    if cropped.save(&temp_path).is_err() {
+        return ScreenshotResult {
+            success: false,
+            image_data: String::new(),
+            width: 0,
+            height: 0,
+            file_size: 0,
+            error: Some("图片编码失败".to_string()),
+        };
+    }
+
+    // 读取文件并编码为 base64
+    match fs::read(&temp_path) {
+        Ok(buffer) => {
+            let _ = fs::remove_file(&temp_path); // 清理临时文件
+            let base64_out = BASE64_STANDARD.encode(&buffer);
+            let data_url = format!("data:image/png;base64,{}", base64_out);
+            ScreenshotResult {
+                success: true,
+                image_data: data_url,
+                width: w,
+                height: h,
+                file_size: buffer.len() as u64,
+                error: None,
+            }
+        }
+        Err(e) => ScreenshotResult {
+            success: false,
+            image_data: String::new(),
+            width: 0,
+            height: 0,
+            file_size: 0,
+            error: Some(format!("读取临时文件失败: {}", e)),
+        },
+    }
+}
+
+// 保存图片到本地
+#[tauri::command]
+pub fn save_image(base64_data: String, filename: String) -> SaveImageResult {
+    use base64::prelude::BASE64_STANDARD;
+
+    // 解码 base64
+    let decoded = match BASE64_STANDARD.decode(&base64_data) {
+        Ok(d) => d,
+        Err(e) => return SaveImageResult {
+            success: false,
+            file_path: String::new(),
+            error: Some(format!("Base64 解码失败: {}", e)),
+        },
+    };
+
+    // 解码图片
+    let img = match image::load_from_memory(&decoded) {
+        Ok(i) => i,
+        Err(e) => return SaveImageResult {
+            success: false,
+            file_path: String::new(),
+            error: Some(format!("图片解码失败: {}", e)),
+        },
+    };
+
+    // 保存到临时目录（使用原文件名扩展名）
+    let temp_dir = std::env::temp_dir();
+    let file_path = temp_dir.join(&filename);
+
+    // 保存（image crate 自动处理格式）
+    match img.save(&file_path) {
+        Ok(_) => SaveImageResult {
+            success: true,
+            file_path: file_path.to_string_lossy().to_string(),
+            error: None,
+        },
+        Err(e) => SaveImageResult {
+            success: false,
+            file_path: String::new(),
+            error: Some(format!("保存失败: {}", e)),
+        },
+    }
+}
+
+// 打开系统文件选择器保存
+#[tauri::command]
+pub fn open_save_dialog(_window: tauri::Window, default_name: String) -> Result<String, String> {
+    use rfd::FileDialog;
+
+    let path = FileDialog::new()
+        .set_file_name(&default_name)
+        .add_filter("图片", &["png", "jpg", "jpeg", "webp"])
+        .save_file();
+
+    match path {
+        Some(p) => Ok(p.to_string_lossy().to_string()),
+        None => Err("用户取消保存".to_string()),
+    }
+}

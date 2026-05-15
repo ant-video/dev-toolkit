@@ -8,6 +8,10 @@ document.querySelectorAll('.nav-item').forEach(item => {
         if (page) page.classList.add('active');
         setTimeout(() => {
             Object.values(editors).forEach(cm => cm && cm.refresh());
+            // 初始化截图页面
+            if (item.dataset.page === 'screenshot') {
+                initScreenshotPage();
+            }
         }, 10);
     });
 });
@@ -398,6 +402,10 @@ function initEditors() {
     // Image Base64
     editors.imageBase64Output = makePlainOutputEditor('image-base64-output');
     editors.base64Input = makePlainInputEditor('base64-input-editor');
+
+    // Screenshot
+    editors.screenshotCanvas = null;  // Will be initialized on page load
+    editors.drawCanvas = null;
 
     // Create search bars for all editors & track focus
     for (const [key, cm] of Object.entries(editors)) {
@@ -1476,4 +1484,540 @@ async function pasteFromClipboard() {
     } catch(e) {
         showStatus('b64-to-img-status', '❌ 无法读取剪贴板', 'error');
     }
+}
+
+// ===== 截图工具 =====
+let _currentScreenshot = null;      // { dataUrl, width, height }
+let _screenshotZoom = 1;
+let _cropMode = false;
+let _drawMode = false;
+let _cropSelection = null;          // { x, y, width, height }
+let _drawTool = 'pen';              // 'pen', 'arrow', 'rectangle', 'circle'
+let _drawColor = '#ff6b6b';
+let _drawBrushSize = 3;
+let _isDrawing = false;
+let _drawStart = null;
+let _screenshotHistory = [];        // Array of { dataUrl, timestamp }
+
+// 初始化截图页面
+function initScreenshotPage() {
+    const canvas = document.getElementById('screenshot-canvas');
+    const drawCanvas = document.getElementById('draw-canvas');
+    if (canvas) {
+        canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    }
+    if (drawCanvas) {
+        drawCanvas.getContext('2d').clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    }
+}
+
+// 截取窗口（使用浏览器屏幕共享 API）
+async function startWindowCapture() {
+    try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { displaySurface: 'window' },
+            audio: false
+        });
+        captureStream(stream);
+    } catch(e) {
+        showStatus('screenshot-info', '❌ 用户取消或浏览器不支持', 'error');
+    }
+}
+
+// 全屏截图
+async function startFullCapture() {
+    try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: { displaySurface: 'monitor' },
+            audio: false
+        });
+        captureStream(stream);
+    } catch(e) {
+        showStatus('screenshot-info', '❌ 用户取消或浏览器不支持', 'error');
+    }
+}
+
+// 区域选择截图（先全屏捕获，然后让用户选择区域）
+async function startSelectionCapture() {
+    try {
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+            video: true,
+            audio: false
+        });
+        // 捕获一帧后停止流，然后进入裁剪模式
+        const track = stream.getVideoTracks()[0];
+        const imageCapture = new ImageCapture(track);
+        const bitmap = await imageCapture.grabFrame();
+        track.stop();
+        stream.getTracks().forEach(t => t.stop());
+        
+        loadScreenshot(bitmap, true);  // true = enter crop mode
+    } catch(e) {
+        showStatus('screenshot-info', '❌ ' + e.message, 'error');
+    }
+}
+
+// 捕获流并渲染到 canvas
+async function captureStream(stream) {
+    const canvas = document.getElementById('screenshot-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    // 创建临时 video 元素
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    await video.play();
+    
+    // 设置 canvas 尺寸
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+    
+    // 停止流
+    stream.getTracks().forEach(t => t.stop());
+    video.remove();
+    
+    // 保存截图数据
+    const dataUrl = canvas.toDataURL('image/png');
+    _currentScreenshot = { dataUrl, width: canvas.width, height: canvas.height };
+    
+    // 显示截图界面
+    showScreenshotInterface();
+    
+    // 添加到历史记录
+    addToHistory(dataUrl);
+}
+
+// 加载图片到截图界面
+function loadScreenshot(source, autoCrop = false) {
+    const canvas = document.getElementById('screenshot-canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const img = new Image();
+    img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        _currentScreenshot = { 
+            dataUrl: canvas.toDataURL('image/png'), 
+            width: img.width, 
+            height: img.height 
+        };
+        
+        showScreenshotInterface();
+        
+        if (autoCrop) {
+            enableCropMode();
+        }
+        
+        addToHistory(_currentScreenshot.dataUrl);
+    };
+    img.src = source instanceof ImageBitmap ? URL.createObjectURL(source) : source;
+}
+
+// 显示截图界面
+function showScreenshotInterface() {
+    document.getElementById('screenshot-canvas-container').style.display = 'block';
+    document.getElementById('screenshot-history').style.display = 'block';
+    document.getElementById('screenshot-info').textContent = 
+        `尺寸: ${_currentScreenshot.width} × ${_currentScreenshot.height} 像素 | 缩放: ${( _screenshotZoom * 100).toFixed(0)}%`;
+    
+    // 调整 canvas 显示尺寸
+    const canvas = document.getElementById('screenshot-canvas');
+    const wrapper = canvas.parentElement;
+    const maxW = wrapper.clientWidth - 40;
+    const maxH = 600;
+    const scale = Math.min(maxW / _currentScreenshot.width, maxH / _currentScreenshot.height, 1);
+    canvas.style.width = (_currentScreenshot.width * scale) + 'px';
+    canvas.style.height = (_currentScreenshot.height * scale) + 'px';
+    _screenshotZoom = scale;
+}
+
+// 取消截图
+function cancelScreenshot() {
+    _currentScreenshot = null;
+    _cropMode = false;
+    _drawMode = false;
+    document.getElementById('screenshot-canvas-container').style.display = 'none';
+    document.getElementById('crop-box').style.display = 'none';
+    document.getElementById('draw-canvas').style.display = 'none';
+    document.getElementById('crop-mode-btn').classList.remove('active');
+    document.getElementById('draw-mode-btn').classList.remove('active');
+    
+    const canvas = document.getElementById('screenshot-canvas');
+    canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+    
+    const drawCanvas = document.getElementById('draw-canvas');
+    drawCanvas.getContext('2d').clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+}
+
+// 缩放控制
+function zoomIn() {
+    _screenshotZoom = Math.min(_screenshotZoom * 1.2, 5);
+    updateCanvasZoom();
+}
+
+function zoomOut() {
+    _screenshotZoom = Math.max(_screenshotZoom / 1.2, 0.1);
+    updateCanvasZoom();
+}
+
+function resetZoom() {
+    _screenshotZoom = 1;
+    updateCanvasZoom();
+}
+
+function updateCanvasZoom() {
+    const canvas = document.getElementById('screenshot-canvas');
+    if (!_currentScreenshot || !canvas) return;
+    
+    const wrapper = canvas.parentElement;
+    const maxW = wrapper.clientWidth - 40;
+    const maxH = 600;
+    
+    // 根据缩放和容器限制计算显示尺寸
+    const naturalW = _currentScreenshot.width;
+    const naturalH = _currentScreenshot.height;
+    
+    // 先按缩放计算，再限制在容器内
+    let displayW = naturalW * _screenshotZoom;
+    let displayH = naturalH * _screenshotZoom;
+    
+    // 如果超出容器，重新计算保持比例
+    if (displayW > maxW || displayH > maxH) {
+        const scale = Math.min(maxW / displayW, maxH / displayH);
+        displayW *= scale;
+        displayH *= scale;
+    }
+    
+    canvas.style.width = displayW + 'px';
+    canvas.style.height = displayH + 'px';
+    
+    // 更新信息
+    document.getElementById('screenshot-info').textContent = 
+        `尺寸: ${naturalW} × ${naturalH} 像素 | 缩放: ${( _screenshotZoom * 100).toFixed(0)}%`;
+    
+    // 如果裁剪模式开启，调整裁剪框
+    if (_cropMode && _cropSelection) {
+        adjustCropBox();
+    }
+}
+
+// 裁剪模式
+function toggleCropMode() {
+    if (!_currentScreenshot) return;
+    
+    _cropMode = !_cropMode;
+    const btn = document.getElementById('crop-mode-btn');
+    
+    if (_cropMode) {
+        enableCropMode();
+    } else {
+        disableCropMode();
+    }
+}
+
+function enableCropMode() {
+    _cropMode = true;
+    document.getElementById('crop-mode-btn').classList.add('active');
+    
+    // 初始化裁剪框（居中，80% 大小）
+    const canvas = document.getElementById('screenshot-canvas');
+    const wrapper = canvas.parentElement;
+    
+    // 计算显示尺寸
+    const displayW = parseFloat(canvas.style.width) || canvas.width;
+    const displayH = parseFloat(canvas.style.height) || canvas.height;
+    
+    _cropSelection = {
+        x: displayW * 0.1,
+        y: displayH * 0.1,
+        width: displayW * 0.8,
+        height: displayH * 0.8
+    };
+    
+    showCropBox();
+}
+
+function disableCropMode() {
+    _cropMode = false;
+    document.getElementById('crop-mode-btn').classList.remove('active');
+    document.getElementById('crop-box').style.display = 'none';
+}
+
+function showCropBox() {
+    const cropBox = document.getElementById('crop-box');
+    if (!_cropSelection || !_currentScreenshot) return;
+    
+    cropBox.style.display = 'block';
+    cropBox.style.left = _cropSelection.x + 'px';
+    cropBox.style.top = _cropSelection.y + 'px';
+    cropBox.style.width = _cropSelection.width + 'px';
+    cropBox.style.height = _cropSelection.height + 'px';
+    
+    // 绑定拖拽和缩放事件
+    bindCropEvents();
+}
+
+function adjustCropBox() {
+    // 根据当前缩放调整裁剪框位置
+    if (_cropSelection) {
+        const canvas = document.getElementById('screenshot-canvas');
+        const displayW = parseFloat(canvas.style.width) || canvas.width;
+        const displayH = parseFloat(canvas.style.height) || canvas.height;
+        
+        // 重新计算比例位置
+        const origW = _currentScreenshot.width;
+        const origH = _currentScreenshot.height;
+        
+        // 假设 cropSelection 存储的是原始像素坐标
+        // 这里简化处理：重新设置为中心 80%
+        _cropSelection = {
+            x: displayW * 0.1,
+            y: displayH * 0.1,
+            width: displayW * 0.8,
+            height: displayH * 0.8
+        };
+        
+        showCropBox();
+    }
+}
+
+function bindCropEvents() {
+    const cropBox = document.getElementById('crop-box');
+    if (!cropBox) return;
+    
+    let isDragging = false;
+    let isResizing = false;
+    let activeHandle = null;
+    let startX, startY, startXPos, startYPos, startW, startH;
+    
+    // 拖拽移动
+    cropBox.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('crop-handle')) {
+            activeHandle = e.target.classList[1];
+            isResizing = true;
+        } else {
+            isDragging = true;
+        }
+        startX = e.clientX;
+        startY = e.clientY;
+        startXPos = _cropSelection.x;
+        startYPos = _cropSelection.y;
+        startW = _cropSelection.width;
+        startH = _cropSelection.height;
+        e.preventDefault();
+    });
+    
+    document.addEventListener('mousemove', onCropMove);
+    document.addEventListener('mouseup', onCropEnd);
+    
+    function onCropMove(e) {
+        if (!isDragging && !isResizing) return;
+        
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        
+        if (isDragging) {
+            _cropSelection.x = Math.max(0, Math.min(startXPos + dx, _currentScreenshot.width - _cropSelection.width));
+            _cropSelection.y = Math.max(0, Math.min(startYPos + dy, _currentScreenshot.height - _cropSelection.height));
+        } else if (isResizing && activeHandle) {
+            // 简化：只处理东南角缩放
+            if (activeHandle === 'handle-se') {
+                _cropSelection.width = Math.max(20, startW + dx);
+                _cropSelection.height = Math.max(20, startH + dy);
+            }
+        }
+        
+        cropBox.style.left = _cropSelection.x + 'px';
+        cropBox.style.top = _cropSelection.y + 'px';
+        cropBox.style.width = _cropSelection.width + 'px';
+        cropBox.style.height = _cropSelection.height + 'px';
+    }
+    
+    function onCropEnd() {
+        isDragging = false;
+        isResizing = false;
+        activeHandle = null;
+        document.removeEventListener('mousemove', onCropMove);
+        document.removeEventListener('mouseup', onCropEnd);
+    }
+}
+
+// 标注模式
+function toggleDrawMode() {
+    if (!_currentScreenshot) return;
+    
+    _drawMode = !_drawMode;
+    const btn = document.getElementById('draw-mode-btn');
+    const drawCanvas = document.getElementById('draw-canvas');
+    
+    if (_drawMode) {
+        btn.classList.add('active');
+        drawCanvas.style.display = 'block';
+        
+        // 同步尺寸
+        const canvas = document.getElementById('screenshot-canvas');
+        drawCanvas.width = canvas.width;
+        drawCanvas.height = canvas.height;
+        drawCanvas.style.width = canvas.style.width;
+        drawCanvas.style.height = canvas.style.height;
+        
+        initDrawTools();
+    } else {
+        btn.classList.remove('active');
+        drawCanvas.style.display = 'none';
+        drawCanvas.getContext('2d').clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    }
+}
+
+function initDrawTools() {
+    // 创建标注工具栏（动态插入）
+    const toolbar = document.querySelector('.screenshot-toolbar');
+    let drawTools = document.getElementById('screenshot-draw-tools');
+    
+    if (!drawTools) {
+        drawTools = document.createElement('div');
+        drawTools.id = 'screenshot-draw-tools';
+        drawTools.className = 'draw-tools';
+        drawTools.innerHTML = `
+            <span style="color:var(--text-secondary);font-size:12px">工具:</span>
+            <button class="btn btn-small ${_drawTool === 'pen' ? 'btn-primary' : 'btn-ghost'}" onclick="setDrawTool('pen')">✏️ 画笔</button>
+            <button class="btn btn-small ${_drawTool === 'arrow' ? 'btn-primary' : 'btn-ghost'}" onclick="setDrawTool('arrow')">➡️ 箭头</button>
+            <button class="btn btn-small ${_drawTool === 'rect' ? 'btn-primary' : 'btn-ghost'}" onclick="setDrawTool('rect')">⬜ 矩形</button>
+            <span class="toolbar-divider"></span>
+            <span style="color:var(--text-secondary);font-size:12px">颜色:</span>
+            <div class="draw-color-picker">
+                <div class="draw-color-btn active" style="background:#ff6b6b" onclick="setDrawColor('#ff6b6b', this)"></div>
+                <div class="draw-color-btn" style="background:#00d68f" onclick="setDrawColor('#00d68f', this)"></div>
+                <div class="draw-color-btn" style="background:#6c5ce7" onclick="setDrawColor('#6c5ce7', this)"></div>
+                <div class="draw-color-btn" style="background:#4ecdc4" onclick="setDrawColor('#4ecdc4', this)"></div>
+                <div class="draw-color-btn" style="background:#ffd93d" onclick="setDrawColor('#ffd93d', this)"></div>
+                <div class="draw-color-btn" style="background:#ffffff;border:1px solid var(--border)" onclick="setDrawColor('#ffffff', this)"></div>
+            </div>
+            <span class="toolbar-divider"></span>
+            <button class="btn btn-small btn-ghost" onclick="clearDrawings()">🗑️ 清除标注</button>
+        `;
+        toolbar.appendChild(drawTools);
+    }
+}
+
+function setDrawTool(tool) {
+    _drawTool = tool;
+    document.querySelectorAll('#screenshot-draw-tools .btn').forEach(b => {
+        b.classList.remove('btn-primary');
+        b.classList.add('btn-ghost');
+    });
+    event.target.classList.remove('btn-ghost');
+    event.target.classList.add('btn-primary');
+}
+
+function setDrawColor(color, btn) {
+    _drawColor = color;
+    document.querySelectorAll('.draw-color-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+}
+
+function clearDrawings() {
+    const drawCanvas = document.getElementById('draw-canvas');
+    drawCanvas.getContext('2d').clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+}
+
+// 保存截图
+async function saveScreenshot() {
+    if (!_currentScreenshot) return;
+    
+    const canvas = document.getElementById('screenshot-canvas');
+    const drawCanvas = document.getElementById('draw-canvas');
+    
+    // 如果有裁剪，先裁剪
+    if (_cropMode && _cropSelection) {
+        try {
+            // 将裁剪区域坐标转换为原始图片坐标
+            const displayW = parseFloat(canvas.style.width) || canvas.width;
+            const displayH = parseFloat(canvas.style.height) || canvas.height;
+            
+            const scaleX = _currentScreenshot.width / displayW;
+            const scaleY = _currentScreenshot.height / displayH;
+            
+            const cropInfo = {
+                x: Math.round(_cropSelection.x * scaleX),
+                y: Math.round(_cropSelection.y * scaleY),
+                width: Math.round(_cropSelection.width * scaleX),
+                height: Math.round(_cropSelection.height * scaleY)
+            };
+            
+            const result = await invoke('crop_image', { 
+                base64Data: _currentScreenshot.dataUrl.replace('data:image/png;base64,', ''),
+                crop: cropInfo 
+            });
+            
+            if (result.success) {
+                _currentScreenshot.dataUrl = result.image_data;
+                _currentScreenshot.width = result.width;
+                _currentScreenshot.height = result.height;
+                
+                // 更新显示
+                loadScreenshot(result.image_data);
+                disableCropMode();
+            }
+        } catch(e) {
+            console.error('裁剪失败:', e);
+        }
+    }
+    
+    // 如果有标注，合并标注层
+    if (_drawMode) {
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(drawCanvas, 0, 0);
+    }
+    
+    // 打开保存对话框
+    try {
+        const timestamp = Date.now();
+        const defaultName = `screenshot_${timestamp}.png`;
+        const filePath = await invoke('open_save_dialog', { defaultName });
+        
+        if (filePath) {
+            const result = await invoke('save_image', {
+                base64Data: _currentScreenshot.dataUrl.replace('data:image/png;base64,', ''),
+                filename: filePath.split('/').pop() || defaultName
+            });
+            
+            if (result.success) {
+                // 打开文件所在文件夹
+                invoke('opener.open', { path: filePath }).catch(() => {});
+            }
+        }
+    } catch(e) {
+        console.error('保存失败:', e);
+    }
+}
+
+// 历史记录管理
+function addToHistory(dataUrl) {
+    _screenshotHistory.unshift({ dataUrl, timestamp: Date.now() });
+    if (_screenshotHistory.length > 10) _screenshotHistory.pop();
+    renderHistory();
+}
+
+function renderHistory() {
+    const container = document.getElementById('screenshot-thumbnails');
+    if (!_screenshotHistory.length) {
+        document.getElementById('screenshot-history').style.display = 'none';
+        return;
+    }
+    
+    document.getElementById('screenshot-history').style.display = 'block';
+    container.innerHTML = _screenshotHistory.map((item, i) => `
+        <div class="thumbnail-item" onclick="loadScreenshot('${item.dataUrl}')">
+            <img src="${item.dataUrl}" alt="截图 ${i + 1}">
+            <button class="thumbnail-delete" onclick="deleteHistory(${i})">✕</button>
+        </div>
+    `).join('');
+}
+
+function deleteHistory(index) {
+    _screenshotHistory.splice(index, 1);
+    renderHistory();
 }

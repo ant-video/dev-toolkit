@@ -1449,3 +1449,186 @@ body {
     font-family: monospace;
     color: var(--accent);
 }
+
+/* ===== 截图工具 ===== */
+.screenshot-mode-selector {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.screenshot-toolbar {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.toolbar-divider {
+    width: 1px;
+    height: 24px;
+    background: var(--border);
+    margin: 0 4px;
+}
+
+.screenshot-canvas-wrapper {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--bg-primary);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 300px;
+}
+
+#screenshot-canvas {
+    max-width: 100%;
+    max-height: 600px;
+    image-rendering: crisp-edges;
+}
+
+.crop-box {
+    position: absolute;
+    border: 2px dashed var(--accent);
+    background: rgba(108, 92, 231, 0.1);
+    cursor: move;
+}
+
+.crop-handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border: 2px solid var(--bg-primary);
+    border-radius: 2px;
+}
+
+.crop-handle.handle-n { top: -6px; left: 50%; transform: translateX(-50%); cursor: n-resize; }
+.crop-handle.handle-s { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: s-resize; }
+.crop-handle.handle-w { left: -6px; top: 50%; transform: translateY(-50%); cursor: w-resize; }
+.crop-handle.handle-e { right: -6px; top: 50%; transform: translateY(-50%); cursor: e-resize; }
+.crop-handle.handle-nw { top: -6px; left: -6px; cursor: nw-resize; }
+.crop-handle.handle-ne { top: -6px; right: -6px; cursor: ne-resize; }
+.crop-handle.handle-sw { bottom: -6px; left: -6px; cursor: sw-resize; }
+.crop-handle.handle-se { bottom: -6px; right: -6px; cursor: se-resize; }
+
+.draw-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.screenshot-info {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.thumbnail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.thumbnail-item {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.thumbnail-item:hover {
+    border-color: var(--accent);
+}
+
+.thumbnail-item img {
+    width: 100%;
+    height: 100px;
+    object-fit: cover;
+    display: block;
+}
+
+.thumbnail-item .thumbnail-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--error);
+    color: white;
+    border: none;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.thumbnail-item:hover .thumbnail-delete {
+    opacity: 1;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+/* 标注工具栏（标注模式下显示） */
+.draw-tools {
+    display: flex;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 12px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.draw-color-picker {
+    display: flex;
+    gap: 4px;
+}
+
+.draw-color-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.draw-color-btn.active {
+    border-color: var(--text-primary);
+}
+
+.draw-brush-size {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.draw-brush-size input[type="range"] {
+    width: 80px;
+}

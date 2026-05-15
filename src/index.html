@@ -72,6 +72,7 @@
                 <div class="nav-group">
                     <div class="nav-group-title">🖼️ 图片工具</div>
                     <a class="nav-item" data-page="image-base64">图片 ↔ Base64</a>
+                    <a class="nav-item" data-page="screenshot">截图工具</a>
                 </div>
                 <div class="nav-group">
                     <div class="nav-group-title">🧹 文本处理</div>
@@ -617,6 +618,57 @@
                         </div>
                         <div id="base64-to-image-result" class="base64-image-result" style="margin-top:12px"></div>
                         <div id="b64-to-img-status" class="status-msg"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 截图工具 -->
+            <div class="page" id="page-screenshot">
+                <h2>📸 截图工具</h2>
+                <div class="tool-card">
+                    <!-- 截图模式选择 -->
+                    <div class="screenshot-mode-selector">
+                        <button class="btn btn-primary" onclick="startWindowCapture()">🪟 截取窗口</button>
+                        <button class="btn btn-secondary" onclick="startFullCapture()">🖥️ 全屏截图</button>
+                        <button class="btn btn-secondary" onclick="startSelectionCapture()">✂️ 区域选择</button>
+                    </div>
+
+                    <!-- 截图预览和编辑区 -->
+                    <div id="screenshot-canvas-container" style="display:none;margin-top:16px">
+                        <div class="screenshot-toolbar">
+                            <button class="btn btn-small btn-ghost" onclick="cancelScreenshot()">✕ 取消</button>
+                            <button class="btn btn-small btn-ghost" onclick="zoomOut()">🔍−</button>
+                            <button class="btn btn-small btn-ghost" onclick="zoomIn()">🔍+</button>
+                            <button class="btn btn-small btn-ghost" onclick="resetZoom()">🔍重置</button>
+                            <span class="toolbar-divider"></span>
+                            <button class="btn btn-small btn-ghost" onclick="toggleCropMode()" id="crop-mode-btn">✂️ 裁剪</button>
+                            <button class="btn btn-small btn-ghost" onclick="toggleDrawMode()" id="draw-mode-btn">✏️ 标注</button>
+                            <span class="toolbar-divider"></span>
+                            <button class="btn btn-small btn-primary" onclick="saveScreenshot()">💾 保存</button>
+                        </div>
+                        <div class="screenshot-canvas-wrapper">
+                            <canvas id="screenshot-canvas"></canvas>
+                            <!-- 裁剪框 -->
+                            <div id="crop-box" class="crop-box" style="display:none">
+                                <div class="crop-handle handle-n"></div>
+                                <div class="crop-handle handle-s"></div>
+                                <div class="crop-handle handle-w"></div>
+                                <div class="crop-handle handle-e"></div>
+                                <div class="crop-handle handle-nw"></div>
+                                <div class="crop-handle handle-ne"></div>
+                                <div class="crop-handle handle-sw"></div>
+                                <div class="crop-handle handle-se"></div>
+                            </div>
+                            <!-- 标注层 -->
+                            <canvas id="draw-canvas" class="draw-overlay" style="display:none"></canvas>
+                        </div>
+                        <div id="screenshot-info" class="screenshot-info"></div>
+                    </div>
+
+                    <!-- 截图历史 -->
+                    <div id="screenshot-history" style="margin-top:16px;display:none">
+                        <h3>最近截图</h3>
+                        <div id="screenshot-thumbnails" class="thumbnail-grid"></div>
                     </div>
                 </div>
             </div>

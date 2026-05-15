@@ -72,6 +72,11 @@ pub fn run() {
             // 图片 Base64 互转
             commands::image_to_base64,
             commands::base64_to_image,
+            // 截图工具
+            commands::screenshot_window,
+            commands::crop_image,
+            commands::save_image,
+            commands::open_save_dialog,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
