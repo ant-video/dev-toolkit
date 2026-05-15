@@ -395,6 +395,10 @@ function initEditors() {
     editors.textTrimInput = makePlainInputEditor('text-trim-input-editor');
     editors.textTrimOutput = makePlainOutputEditor('text-trim-output-editor');
 
+    // Image Base64
+    editors.imageBase64Output = makePlainOutputEditor('image-base64-output');
+    editors.base64Input = makePlainInputEditor('base64-input-editor');
+
     // Create search bars for all editors & track focus
     for (const [key, cm] of Object.entries(editors)) {
         createSearchBar(key);
@@ -1354,4 +1358,122 @@ async function trimLines() {
         editors.textTrimOutput.setValue(r.result);
         showStatus('text-trim-status', `✓ 原始 ${r.original_lines} 行 → 去除空行后 ${r.result_lines} 行，移除 ${r.removed} 行`, 'success');
     } catch(e) { showStatus('text-trim-status', '✗ ' + e, 'error'); }
+}
+
+// ===== 图片 Base64 互转 =====
+let _selectedImageFile = null;
+
+// 拖拽上传
+const uploadArea = document.getElementById('image-upload-area');
+if (uploadArea) {
+    uploadArea.addEventListener('click', () => document.getElementById('image-file-input').click());
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleImageFile(files[0]);
+    });
+    document.getElementById('image-file-input').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleImageFile(e.target.files[0]);
+    });
+}
+
+function handleImageFile(file) {
+    if (!file.type.startsWith('image/')) {
+        showStatus('image-b64-status', '❌ 请选择图片文件', 'error');
+        return;
+    }
+    _selectedImageFile = file;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        document.getElementById('image-preview-img').src = e.target.result;
+        document.getElementById('image-preview').style.display = 'block';
+        document.getElementById('image-upload-area').style.display = 'none';
+        document.getElementById('img-to-b64-btn').disabled = false;
+        document.getElementById('image-base64-output').innerHTML = '';
+        document.getElementById('image-base64-output').CodeMirror?.setValue('');
+        document.getElementById('copy-img-b64-btn').disabled = true;
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearImageUpload() {
+    _selectedImageFile = null;
+    document.getElementById('image-file-input').value = '';
+    document.getElementById('image-preview').style.display = 'none';
+    document.getElementById('image-upload-area').style.display = 'block';
+    document.getElementById('img-to-b64-btn').disabled = true;
+    document.getElementById('image-base64-output').innerHTML = '';
+    document.getElementById('image-base64-output').CodeMirror?.setValue('');
+    document.getElementById('copy-img-b64-btn').disabled = true;
+    showStatus('image-b64-status', '', '');
+}
+
+async function convertImageToBase64() {
+    if (!_selectedImageFile) return;
+    try {
+        // 保存到临时文件
+        const tempPath = `/tmp/dev-toolkit-image-${Date.now()}.${_selectedImageFile.name.split('.').pop() || 'png'}`;
+        const arrayBuffer = await _selectedImageFile.arrayBuffer();
+        const uint8 = new Uint8Array(arrayBuffer);
+        // 使用 Tauri fs API 写入临时文件
+        const { writeBinaryFile } = window.__TAURI__.fs;
+        await writeBinaryFile(tempPath, uint8);
+        
+        const r = await invoke('image_to_base64', { path: tempPath });
+        if (r.success) {
+            editors.imageBase64Output.setValue(r.base64);
+            document.getElementById('copy-img-b64-btn').disabled = false;
+            showStatus('image-b64-status', `✓ 转换成功 | ${r.mime_type} | ${r.size_bytes} 字节`, 'success');
+        } else {
+            showStatus('image-b64-status', `❌ ${r.error}`, 'error');
+        }
+    } catch(e) {
+        showStatus('image-b64-status', '✗ ' + e, 'error');
+    }
+}
+
+async function convertBase64ToImage() {
+    const base64Str = editors.base64Input.getValue().trim();
+    if (!base64Str) return;
+    try {
+        const r = await invoke('base64_to_image', { base64Str });
+        if (r.success) {
+            const ext = r.mime_type.split('/')[1] || 'bin';
+            document.getElementById('base64-to-image-result').innerHTML = `
+                <div class="b64-image-card">
+                    <img src="${r.data_url}" alt="预览" class="b64-image-preview">
+                    <div class="b64-image-info">
+                        <div class="b64-image-type">${r.mime_type}</div>
+                        <div class="b64-image-size">${r.size_bytes} 字节</div>
+                    </div>
+                    <div class="btn-group">
+                        <a href="${r.data_url}" download="image.${ext}" class="btn btn-primary" style="text-decoration:none;display:inline-block">⬇ 下载图片</a>
+                    </div>
+                </div>
+            `;
+            showStatus('b64-to-img-status', '✓ 转换成功', 'success');
+        } else {
+            document.getElementById('base64-to-image-result').innerHTML = '';
+            showStatus('b64-to-img-status', `❌ ${r.error}`, 'error');
+        }
+    } catch(e) {
+        showStatus('b64-to-img-status', '✗ ' + e, 'error');
+    }
+}
+
+async function pasteFromClipboard() {
+    try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+            editors.base64Input.setValue(text);
+        }
+    } catch(e) {
+        showStatus('b64-to-img-status', '❌ 无法读取剪贴板', 'error');
+    }
 }

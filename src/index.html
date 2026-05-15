@@ -70,6 +70,10 @@
                     <a class="nav-item" data-page="lorem">Lorem Ipsum</a>
                 </div>
                 <div class="nav-group">
+                    <div class="nav-group-title">🖼️ 图片工具</div>
+                    <a class="nav-item" data-page="image-base64">图片 ↔ Base64</a>
+                </div>
+                <div class="nav-group">
                     <div class="nav-group-title">🧹 文本处理</div>
                     <a class="nav-item" data-page="text-deduplicate">文本去重</a>
                     <a class="nav-item" data-page="text-sort">文本排序</a>
@@ -575,6 +579,45 @@
                     </div>
                     <div id="text-trim-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="250"></div>
                     <div id="text-trim-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 图片 Base64 互转 -->
+            <div class="page" id="page-image-base64">
+                <h2>🖼️ 图片 ↔ Base64 互转</h2>
+                <div class="tool-card">
+                    <!-- 图片 → Base64 -->
+                    <div class="convert-section">
+                        <h3>📷 图片 → Base64</h3>
+                        <div class="image-upload-area" id="image-upload-area">
+                            <input type="file" id="image-file-input" accept="image/*" hidden>
+                            <div class="upload-icon">📁</div>
+                            <div class="upload-text">点击或拖拽上传图片</div>
+                            <div class="upload-hint">支持 JPG, PNG, GIF, WebP, SVG</div>
+                        </div>
+                        <div id="image-preview" class="image-preview-box" style="display:none">
+                            <img id="image-preview-img" src="" alt="预览">
+                            <button class="btn btn-small btn-ghost" onclick="clearImageUpload()">✕ 清除</button>
+                        </div>
+                        <div class="btn-group" style="margin-top:12px">
+                            <button class="btn btn-primary" onclick="convertImageToBase64()" id="img-to-b64-btn" disabled>转换</button>
+                            <button class="btn btn-ghost" onclick="copyToClipboard(document.getElementById('image-base64-output').value)" id="copy-img-b64-btn" disabled>📋 复制 Base64</button>
+                        </div>
+                        <div id="image-base64-output" class="code-editor code-editor-readonly" style="margin-top:12px;height:200px"></div>
+                        <div id="image-b64-status" class="status-msg"></div>
+                    </div>
+
+                    <!-- Base64 → 图片 -->
+                    <div class="convert-section">
+                        <h3>🔗 Base64 → 图片</h3>
+                        <div id="base64-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="200"></div>
+                        <div class="btn-group" style="margin-top:12px">
+                            <button class="btn btn-primary" onclick="convertBase64ToImage()">转换</button>
+                            <button class="btn btn-ghost" onclick="pasteFromClipboard()">📋 粘贴</button>
+                        </div>
+                        <div id="base64-to-image-result" class="base64-image-result" style="margin-top:12px"></div>
+                        <div id="b64-to-img-status" class="status-msg"></div>
+                    </div>
                 </div>
             </div>
         </main>

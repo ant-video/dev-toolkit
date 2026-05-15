@@ -69,6 +69,9 @@ pub fn run() {
             commands::mime_lookup,
             // 数字格式化
             commands::number_format,
+            // 图片 Base64 互转
+            commands::image_to_base64,
+            commands::base64_to_image,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

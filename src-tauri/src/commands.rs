@@ -1461,3 +1461,133 @@ pub fn number_format(input: String) -> NumberFormatResult {
         error: None,
     }
 }
+
+// ==================== 图片 Base64 互转 ====================
+#[derive(Serialize)]
+pub struct ImageToBase64Result {
+    pub success: bool,
+    pub base64: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn image_to_base64(path: String) -> ImageToBase64Result {
+    use std::path::Path;
+
+    let path = Path::new(&path);
+    if !path.exists() {
+        return ImageToBase64Result {
+            success: false,
+            base64: String::new(),
+            mime_type: String::new(),
+            size_bytes: 0,
+            error: Some("文件不存在".to_string()),
+        };
+    }
+
+    let ext = path.extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    let mime_type = match ext.as_str() {
+        "jpg" | "jpeg" => "image/jpeg",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "bmp" => "image/bmp",
+        "ico" => "image/x-icon",
+        "avif" => "image/avif",
+        _ => "application/octet-stream",
+    };
+
+    match std::fs::read(path) {
+        Ok(bytes) => {
+            let b64 = base64::prelude::BASE64_STANDARD.encode(&bytes);
+            ImageToBase64Result {
+                success: true,
+                base64: b64,
+                mime_type: mime_type.to_string(),
+                size_bytes: bytes.len() as u64,
+                error: None,
+            }
+        }
+        Err(e) => ImageToBase64Result {
+            success: false,
+            base64: String::new(),
+            mime_type: String::new(),
+            size_bytes: 0,
+            error: Some(format!("读取文件失败: {}", e)),
+        },
+    }
+}
+
+#[derive(Serialize)]
+pub struct Base64ToImageResult {
+    pub success: bool,
+    pub data_url: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn base64_to_image(base64_str: String) -> Base64ToImageResult {
+    use std::io::Write;
+
+    let decoded = match base64::prelude::BASE64_STANDARD.decode(&base64_str) {
+        Ok(data) => data,
+        Err(e) => return Base64ToImageResult {
+            success: false,
+            data_url: String::new(),
+            mime_type: String::new(),
+            size_bytes: 0,
+            error: Some(format!("Base64 解码失败: {}", e)),
+        },
+    };
+
+    // 尝试检测 MIME 类型（通过文件头签名）
+    let mime_type = detect_mime(&decoded);
+    let data_url = format!("data:{};base64,{}", mime_type, base64_str);
+
+    Base64ToImageResult {
+        success: true,
+        data_url,
+        mime_type,
+        size_bytes: decoded.len() as u64,
+        error: None,
+    }
+}
+
+fn detect_mime(data: &[u8]) -> String {
+    if data.len() >= 2 {
+        // PNG: 89 50 4E 47
+        if data[0] == 0x89 && data[1] == 0x50 {
+            return "image/png".to_string();
+        }
+        // JPEG: FF D8 FF
+        if data[0] == 0xFF && data[1] == 0xD8 {
+            return "image/jpeg".to_string();
+        }
+    }
+    if data.len() >= 4 {
+        // GIF: 47 49 46
+        if data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46 {
+            return "image/gif".to_string();
+        }
+        // WebP: 52 49 46 46 ... 57 45 42 50
+        if data[0] == 0x52 && data[1] == 0x49 && data[2] == 0x46 && data[3] == 0x46 {
+            if data.len() >= 12 && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50 {
+                return "image/webp".to_string();
+            }
+        }
+        // BMP: 42 4D
+        if data[0] == 0x42 && data[1] == 0x4D {
+            return "image/bmp".to_string();
+        }
+    }
+    "application/octet-stream".to_string()
+}
