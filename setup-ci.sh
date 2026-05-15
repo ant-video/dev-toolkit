@@ -1,3 +1,13 @@
+#!/bin/bash
+# Setup GitHub Actions CI for DevToolkit
+# Run this script after cloning the repo
+# Requires: gh CLI with 'workflow' scope
+
+echo "🔧 Setting up GitHub Actions CI..."
+
+mkdir -p .github/workflows
+
+cat > .github/workflows/build.yml << 'EOF'
 name: Build & Release
 
 on:
@@ -78,3 +88,24 @@ jobs:
             src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*
             src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*
           if-no-files-found: ignore
+EOF
+
+echo "✅ .github/workflows/build.yml created"
+echo ""
+echo "Now commit and push:"
+echo "  git add .github/workflows/build.yml"
+echo "  git commit -m 'ci: add cross-platform build workflow'"
+echo "  git push"
+echo ""
+echo "Or if you have gh CLI with workflow scope:"
+git add .github/workflows/build.yml 2>/dev/null
+if command -v gh &> /dev/null; then
+    echo "  Detected gh CLI — attempting to push via API..."
+    BRANCH=$(git branch --show-current)
+    CONTENT=$(base64 -i .github/workflows/build.yml | tr -d '\n')
+    gh api repos/$(gh repo view --json nameWithOwner -q .nameWithOwner)/contents/.github/workflows/build.yml \
+      -X PUT \
+      -f message="ci: add cross-platform build workflow" \
+      -f content="$CONTENT" \
+      -f branch="$BRANCH" 2>/dev/null && echo "✅ Pushed!" || echo "⚠️  API push failed (needs workflow scope). Use git push instead."
+fi
