@@ -1,34 +1,112 @@
 # 🛠️ DevToolkit - 程序员工具集
 
+[![Build](https://github.com/ant-video/dev-toolkit/actions/workflows/build.yml/badge.svg)](https://github.com/ant-video/dev-toolkit/actions/workflows/build.yml)
+
 跨平台桌面应用，基于 Tauri 2.0 + Rust + CodeMirror 5。
+
+📖 **文档**：[产品设计文档](docs/PRODUCT.md) | [技术设计文档](docs/DESIGN.md)
 
 ## 功能
 
-| 分类 | 工具 |
-|------|------|
-| 🕐 时间 | 时间戳转换 |
-| 📝 文本 | JSON 格式化/压缩/校验/去转义、文本对比、正则测试、文本统计 |
-| 🔐 编解码 | Base64、URL、Unicode、HTML |
-| 🔒 加解密 | MD5/SHA 哈希、HMAC-SHA256、AES-256-GCM |
-| 🔄 转换 | 进制转换、颜色转换、JWT 解码、URL 解析 |
+| 分类 | 工具 | 说明 |
+|------|------|------|
+| 🕐 时间 | 时间戳转换 | Unix 时间戳 ↔ 日期互转 |
+| 📝 文本 | JSON 工具 | 格式化 / 压缩 / 校验 / 去转义 / 代码折叠 |
+| 📄 对比 | 文本对比 | 逐行逐词差异高亮 + 同步滚动 |
+| 🔍 正则 | 正则测试 | 实时匹配 + 分组捕获 |
+| 📊 统计 | 文本统计 | 字数 / 行数 / 字符数 / 字节数 |
+| 🔐 编解码 | Base64 | 文本 ↔ Base64 互转 |
+| 🌐 编解码 | URL 编解码 | 百分号编码 / 解码 |
+| 🔣 编解码 | Unicode | \uXXXX 转义 / 解码 |
+| 📎 编解码 | HTML 实体 | 特殊字符 ↔ 实体互转 |
+| 🔒 加密 | 哈希计算 | MD5 / SHA-1 / SHA-256 / SHA-512 |
+| 🔑 加密 | HMAC-SHA256 | 消息认证签名 |
+| 🛡️ 加密 | AES 加解密 | AES-256-GCM 对称加解密 |
+| 🔢 转换 | 进制转换 | 2~36 进制互转 |
+| 🎨 转换 | 颜色转换 | HEX / RGB / HSL 互转 + 预览 |
+| 🎫 转换 | JWT 解码 | 解析 Header / Payload / Signature |
+| 🔗 转换 | URL 解析 | 协议 / 主机 / 路径 / 参数 |
 
 ## 特性
 
-- 🔍 常驻搜索栏（⌘F），支持上一个/下一个、匹配计数
-- 📐 编辑器可拖拽调整大小
-- 📂 侧边栏折叠/隐藏
-- 🗂️ JSON 代码折叠（1/2/3级、全部折叠/展开）
-- 📊 文本对比：逐词高亮差异 + 同步滚动
+- 🔍 **持久搜索栏**：⌘F 打开，常驻显示，支持上一个/下一个、匹配计数、大小写/正则
+- 📐 **编辑器可拖拽**：拖动底部手柄调整编辑器高度
+- 📂 **侧边栏折叠**：点击 ◀ / ☰ 收起展开
+- 🗂️ **JSON 折叠**：按 1/2/3 级折叠、全部折叠/展开
+- 📊 **文本对比**：LCS 算法逐行 diff + 逐词高亮 + 同步滚动
+- 🌙 **Dracula 暗色主题**：护眼舒适
+- 🔒 **完全离线**：无网络请求，数据不出本机
+
+## 截图
+
+> *待补充*
+
+## 下载
+
+| 平台 | 格式 |
+|------|------|
+| macOS (Intel) | `.dmg` |
+| macOS (Apple Silicon) | `.dmg` |
+| Windows | `.msi` / `.exe` |
+| Linux | `.deb` / `.AppImage` |
+
+前往 [Releases](https://github.com/ant-video/dev-toolkit/releases) 下载最新版本。
 
 ## 构建
 
+### 前置要求
+
+- [Node.js](https://nodejs.org/) 18+
+- [Rust](https://www.rust-lang.org/tools/install) 1.70+
+- [Tauri CLI](https://tauri.app/start/prerequisites/)
+
+### 开发
+
 ```bash
 npm install
+npx tauri dev
+```
+
+### 构建
+
+```bash
 npx tauri build
 ```
 
+构建产物位于 `src-tauri/target/release/bundle/`。
+
+### 跨平台构建 (GitHub Actions)
+
+```bash
+# 1. 初始化 CI（需要 gh CLI + workflow scope）
+bash setup-ci.sh
+git add .github/workflows/build.yml
+git commit -m "ci: add workflow"
+git push
+
+# 2. 打 Tag 触发构建
+git tag v1.0.0
+git push --tags
+```
+
+构建完成后在 [Releases](https://github.com/ant-video/dev-toolkit/releases) 页面查看产物。
+
 ## 技术栈
 
-- **后端**: Rust (Tauri 2.0)
-- **前端**: HTML/CSS/JS + CodeMirror 5
-- **主题**: Dracula 暗色
+| 层级 | 技术 |
+|------|------|
+| 框架 | Tauri 2.0 |
+| 后端 | Rust |
+| 前端 | HTML / CSS / JavaScript |
+| 编辑器 | CodeMirror 5 |
+| 主题 | Dracula |
+| CI/CD | GitHub Actions |
+
+## 文档
+
+- 📖 [产品说明文档](docs/PRODUCT.md) — 功能介绍、使用指南、常见问题
+- 📐 [技术设计文档](docs/DESIGN.md) — 架构设计、模块说明、数据流、安全设计
+
+## 开源协议
+
+MIT License
