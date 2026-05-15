@@ -1536,7 +1536,6 @@ pub struct Base64ToImageResult {
 
 #[tauri::command]
 pub fn base64_to_image(base64_str: String) -> Base64ToImageResult {
-    use std::io::Write;
 
     let decoded = match base64::prelude::BASE64_STANDARD.decode(&base64_str) {
         Ok(data) => data,
