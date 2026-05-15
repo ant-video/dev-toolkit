@@ -1043,3 +1043,310 @@ body {
 
 /* ===== Tooltip ===== */
 [title] { cursor: help; }
+
+/* ===== 命名转换 ===== */
+.case-convert-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.case-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.case-item:hover {
+    border-color: var(--accent);
+}
+
+.case-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 110px;
+    text-transform: uppercase;
+}
+
+.case-value {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--text-primary);
+    flex: 1;
+    word-break: break-all;
+}
+
+.case-copy {
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.case-item:hover .case-copy {
+    opacity: 1;
+}
+
+/* ===== CSS 单位转换 ===== */
+.css-unit-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.css-unit-item {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    text-align: center;
+}
+
+.css-unit-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.css-unit-value {
+    font-family: monospace;
+    font-size: 16px;
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* ===== 数字格式化 ===== */
+.number-format-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.number-format-item {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.number-format-item:hover {
+    border-color: var(--accent);
+}
+
+.number-format-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.number-format-value {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--text-primary);
+    word-break: break-all;
+}
+
+/* ===== Cron 解析 ===== */
+.cron-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 8px 0;
+}
+
+.cron-result {
+    margin-top: 12px;
+}
+
+.cron-desc {
+    font-size: 15px;
+    color: var(--text-primary);
+    padding: 12px 16px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 12px;
+}
+
+.cron-next-title {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.cron-next-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+}
+
+.cron-next-num {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.cron-next-time {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+/* ===== MIME 查询 ===== */
+.mime-result-list {
+    margin-top: 12px;
+}
+
+.mime-item {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 8px;
+}
+
+.mime-type {
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--accent);
+    margin-bottom: 4px;
+}
+
+.mime-exts {
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ===== UUID ===== */
+.uuid-list {
+    margin-top: 12px;
+}
+
+.uuid-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: border-color var(--transition);
+}
+
+.uuid-item:hover {
+    border-color: var(--accent);
+}
+
+.uuid-format {
+    font-size: 11px;
+    color: var(--text-muted);
+    min-width: 60px;
+}
+
+.uuid-value {
+    font-family: monospace;
+    font-size: 14px;
+    color: var(--text-primary);
+    flex: 1;
+}
+
+.uuid-copy {
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity var(--transition);
+}
+
+.uuid-item:hover .uuid-copy {
+    opacity: 1;
+}
+
+/* ===== 密码生成器 ===== */
+.password-options {
+    margin-bottom: 12px;
+}
+
+.checkbox-group {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+.checkbox-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    accent-color: var(--accent);
+}
+
+.password-result {
+    margin-top: 12px;
+}
+
+.pwd-value {
+    font-family: monospace;
+    font-size: 18px;
+    color: var(--text-primary);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px 20px;
+    text-align: center;
+    word-break: break-all;
+    cursor: pointer;
+    letter-spacing: 1px;
+}
+
+.pwd-meta {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ===== Select Field ===== */
+.select-field {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+}
+
+.select-field:focus {
+    border-color: var(--accent);
+}

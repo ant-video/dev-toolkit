@@ -32,3 +32,7 @@ aes-gcm = "0.10"
 regex = "1"
 urlencoding = "2"
 jwt = "0.16"
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+serde_yaml = "0.9"
+quick-xml = "0.36"

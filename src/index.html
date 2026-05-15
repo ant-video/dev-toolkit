@@ -52,6 +52,28 @@
                     <a class="nav-item" data-page="color">颜色转换</a>
                     <a class="nav-item" data-page="jwt">JWT 解码</a>
                     <a class="nav-item" data-page="url-parse">URL 解析</a>
+                    <a class="nav-item" data-page="case-convert">命名转换</a>
+                    <a class="nav-item" data-page="css-unit">CSS 单位</a>
+                    <a class="nav-item" data-page="number-format">数字格式化</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">📋 数据格式</div>
+                    <a class="nav-item" data-page="yaml-json">YAML/JSON</a>
+                    <a class="nav-item" data-page="xml-tool">XML 工具</a>
+                    <a class="nav-item" data-page="cron">Cron 解析</a>
+                    <a class="nav-item" data-page="mime">MIME 查询</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">✨ 生成器</div>
+                    <a class="nav-item" data-page="uuid">UUID</a>
+                    <a class="nav-item" data-page="password">密码生成</a>
+                    <a class="nav-item" data-page="lorem">Lorem Ipsum</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">🧹 文本处理</div>
+                    <a class="nav-item" data-page="text-deduplicate">文本去重</a>
+                    <a class="nav-item" data-page="text-sort">文本排序</a>
+                    <a class="nav-item" data-page="text-trim">去除空行</a>
                 </div>
             </nav>
             <div class="sidebar-footer">
@@ -350,6 +372,209 @@
                         <button class="btn btn-primary" onclick="parseUrl()">解析</button>
                     </div>
                     <div id="url-parse-result" class="url-parse-grid"></div>
+                </div>
+            </div>
+
+            <!-- 命名转换 -->
+            <div class="page" id="page-case-convert">
+                <h2>🔄 命名转换</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="case-convert-input" placeholder="输入文本，如 helloWorld, hello_world, hello-world..." class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="convertCase()">转换</button>
+                    </div>
+                    <div id="case-convert-result" class="case-convert-grid"></div>
+                </div>
+            </div>
+
+            <!-- CSS 单位转换 -->
+            <div class="page" id="page-css-unit">
+                <h2>🔄 CSS 单位转换</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="number" id="css-unit-value" placeholder="数值" class="input-field" style="width:100px">
+                        <select id="css-unit-from" class="select-field">
+                            <option value="px">px</option>
+                            <option value="rem">rem</option>
+                            <option value="em">em</option>
+                            <option value="pt">pt</option>
+                            <option value="vw">vw</option>
+                            <option value="vh">vh</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="convertCssUnit()">转换</button>
+                    </div>
+                    <div class="input-row" style="margin-top:12px">
+                        <label style="color:var(--text-secondary);font-size:13px;white-space:nowrap">根字号 (rem基准)</label>
+                        <input type="number" id="css-base-size" value="16" class="input-field" style="width:80px">
+                        <label style="color:var(--text-secondary);font-size:13px;white-space:nowrap;margin-left:16px">视口宽</label>
+                        <input type="number" id="css-vp-width" value="1920" class="input-field" style="width:100px">
+                        <label style="color:var(--text-secondary);font-size:13px;white-space:nowrap;margin-left:16px">视口高</label>
+                        <input type="number" id="css-vp-height" value="1080" class="input-field" style="width:100px">
+                    </div>
+                    <div id="css-unit-result" class="css-unit-grid"></div>
+                </div>
+            </div>
+
+            <!-- 数字格式化 -->
+            <div class="page" id="page-number-format">
+                <h2>🔄 数字格式化</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="number-format-input" placeholder="输入数字，如 42, 3.14, -1024" class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="formatNumber()">格式化</button>
+                    </div>
+                    <div id="number-format-result" class="number-format-grid"></div>
+                </div>
+            </div>
+
+            <!-- YAML/JSON 互转 -->
+            <div class="page" id="page-yaml-json">
+                <h2>📋 YAML / JSON 互转</h2>
+                <div class="tool-card">
+                    <div id="yaml-json-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="280"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="yamlToJson()">YAML → JSON</button>
+                        <button class="btn btn-secondary" onclick="jsonToYaml()">JSON → YAML</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('yamlJsonOutput')">📋 复制</button>
+                    </div>
+                    <div id="yaml-json-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="280"></div>
+                    <div id="yaml-json-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- XML 工具 -->
+            <div class="page" id="page-xml-tool">
+                <h2>📋 XML 工具</h2>
+                <div class="tool-card">
+                    <div id="xml-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="280"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="xmlFormat()">格式化</button>
+                        <button class="btn btn-secondary" onclick="xmlMinify()">压缩</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('xmlOutput')">📋 复制</button>
+                    </div>
+                    <div id="xml-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="280"></div>
+                    <div id="xml-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- Cron 解析 -->
+            <div class="page" id="page-cron">
+                <h2>📋 Cron 表达式解析</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="cron-input" placeholder="*/5 * * * *" class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="parseCron()">解析</button>
+                    </div>
+                    <div class="cron-hint">支持 5 字段（分 时 日 月 周）和 6 字段（秒 分 时 日 月 周）格式</div>
+                    <div id="cron-result" class="cron-result"></div>
+                </div>
+            </div>
+
+            <!-- MIME 查询 -->
+            <div class="page" id="page-mime">
+                <h2>📋 MIME 类型查询</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="mime-input" placeholder="输入 MIME 类型（如 application/json）或扩展名（如 json）" class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="lookupMime()">查询</button>
+                    </div>
+                    <div id="mime-result" class="mime-result-list"></div>
+                </div>
+            </div>
+
+            <!-- UUID -->
+            <div class="page" id="page-uuid">
+                <h2>✨ UUID 生成器</h2>
+                <div class="tool-card">
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="generateUuid()">🎲 生成 UUID</button>
+                        <button class="btn btn-ghost" onclick="generateUuid5()">生成 5 个</button>
+                    </div>
+                    <div id="uuid-result" class="uuid-list"></div>
+                </div>
+            </div>
+
+            <!-- 密码生成 -->
+            <div class="page" id="page-password">
+                <h2>✨ 密码生成器</h2>
+                <div class="tool-card">
+                    <div class="password-options">
+                        <div class="input-row">
+                            <label style="color:var(--text-secondary);font-size:13px;white-space:nowrap">长度</label>
+                            <input type="number" id="pwd-length" value="16" min="4" max="128" class="input-field" style="width:80px">
+                        </div>
+                        <div class="checkbox-group">
+                            <label class="checkbox-label"><input type="checkbox" id="pwd-upper" checked> 大写字母</label>
+                            <label class="checkbox-label"><input type="checkbox" id="pwd-lower" checked> 小写字母</label>
+                            <label class="checkbox-label"><input type="checkbox" id="pwd-numbers" checked> 数字</label>
+                            <label class="checkbox-label"><input type="checkbox" id="pwd-symbols" checked> 特殊符号</label>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="generatePassword()">🎲 生成密码</button>
+                    </div>
+                    <div id="password-result" class="password-result"></div>
+                </div>
+            </div>
+
+            <!-- Lorem Ipsum -->
+            <div class="page" id="page-lorem">
+                <h2>✨ Lorem Ipsum 生成器</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <label style="color:var(--text-secondary);font-size:13px;white-space:nowrap">段落数</label>
+                        <input type="number" id="lorem-paragraphs" value="3" min="1" max="20" class="input-field" style="width:80px">
+                        <select id="lorem-type" class="select-field">
+                            <option value="latin">英文 (Latin)</option>
+                            <option value="chinese">中文</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="generateLorem()">生成</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('loremOutput')">📋 复制</button>
+                    </div>
+                    <div id="lorem-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="300"></div>
+                </div>
+            </div>
+
+            <!-- 文本去重 -->
+            <div class="page" id="page-text-deduplicate">
+                <h2>🧹 文本去重</h2>
+                <div class="tool-card">
+                    <div id="text-dedup-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="deduplicateText()">去重</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('textDedupOutput')">📋 复制</button>
+                    </div>
+                    <div id="text-dedup-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="250"></div>
+                    <div id="text-dedup-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 文本排序 -->
+            <div class="page" id="page-text-sort">
+                <h2>🧹 文本排序</h2>
+                <div class="tool-card">
+                    <div id="text-sort-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="sortText(false)">A→Z 升序</button>
+                        <button class="btn btn-secondary" onclick="sortText(true)">Z→A 降序</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('textSortOutput')">📋 复制</button>
+                    </div>
+                    <div id="text-sort-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="250"></div>
+                    <div id="text-sort-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 去除空行 -->
+            <div class="page" id="page-text-trim">
+                <h2>🧹 去除空行</h2>
+                <div class="tool-card">
+                    <div id="text-trim-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="trimLines()">去除空行</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('textTrimOutput')">📋 复制</button>
+                    </div>
+                    <div id="text-trim-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="250"></div>
+                    <div id="text-trim-status" class="status-msg"></div>
                 </div>
             </div>
         </main>

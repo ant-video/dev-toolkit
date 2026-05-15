@@ -44,6 +44,31 @@ pub fn run() {
             commands::color_convert,
             // 文本统计
             commands::text_stats,
+            // 生成工具
+            commands::uuid_generate,
+            commands::password_generate,
+            // YAML/JSON 互转
+            commands::yaml_to_json,
+            commands::json_to_yaml,
+            // XML 格式化
+            commands::xml_format,
+            commands::xml_minify,
+            // 文本大小写/命名转换
+            commands::text_case_convert,
+            // CSS 单位转换
+            commands::css_unit_convert,
+            // Cron 表达式解析
+            commands::cron_parse,
+            // 文本处理
+            commands::text_deduplicate,
+            commands::text_sort,
+            commands::text_trim_lines,
+            // Lorem Ipsum 生成器
+            commands::lorem_generate,
+            // MIME 类型查询
+            commands::mime_lookup,
+            // 数字格式化
+            commands::number_format,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

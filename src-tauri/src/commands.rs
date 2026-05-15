@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use base64::Engine;
 use digest::Digest;
-use chrono::TimeZone;
+use chrono::{TimeZone, Timelike};
 
 // ==================== 时间转换 ====================
 #[derive(Serialize, Deserialize)]
@@ -134,39 +134,30 @@ pub fn json_validate(input: String) -> JsonResult {
     }
 }
 
-// ==================== JSON 去转义 ====================
 #[tauri::command]
 pub fn json_unescape(input: String) -> JsonResult {
     let trimmed = input.trim();
-    // Try to parse as a JSON string first (e.g. "hello\\nworld")
     if trimmed.starts_with('"') {
         match serde_json::from_str::<serde_json::Value>(trimmed) {
             Ok(serde_json::Value::String(s)) => {
-                // It's a valid JSON string, the deserialized value is the unescaped version
                 JsonResult { success: true, result: s, error: None }
             }
             Ok(_) => {
-                // It's a JSON value but not a string - format it prettily
                 let result = serde_json::to_string_pretty(&serde_json::from_str::<serde_json::Value>(trimmed).unwrap()).unwrap_or_default();
                 JsonResult { success: true, result, error: None }
             }
             Err(e) => JsonResult { success: false, result: input, error: Some(format!("JSON 解析失败: {}", e)) }
         }
     } else {
-        // Not a quoted JSON string - try to unescape common escape sequences
-        // Or try to parse as JSON value (e.g. already a JSON object/array)
         match serde_json::from_str::<serde_json::Value>(trimmed) {
             Ok(val) => {
                 let result = serde_json::to_string_pretty(&val).unwrap_or_default();
                 JsonResult { success: true, result, error: None }
             }
             Err(_) => {
-                // Try treating as a double-escaped JSON string
-                // e.g. "{\"key\":\"value\"}" -> {"key":"value"}
                 let double_quoted = format!("\"{}\"", trimmed.replace('\\', "\\\\").replace('"', "\\\""));
                 match serde_json::from_str::<serde_json::Value>(&double_quoted) {
                     Ok(serde_json::Value::String(s)) => {
-                        // Now s is the unescaped version, try to format it as JSON
                         match serde_json::from_str::<serde_json::Value>(&s) {
                             Ok(val) => {
                                 let result = serde_json::to_string_pretty(&val).unwrap_or_default();
@@ -189,7 +180,7 @@ pub fn json_unescape(input: String) -> JsonResult {
 pub struct DiffLine {
     pub line_num: usize,
     pub content: String,
-    pub diff_type: String, // "same", "add", "del", "change"
+    pub diff_type: String,
 }
 
 #[derive(Serialize)]
@@ -211,17 +202,13 @@ pub struct DiffStats {
 pub fn text_diff(left: String, right: String) -> DiffResult {
     let left_lines: Vec<&str> = left.lines().collect();
     let right_lines: Vec<&str> = right.lines().collect();
-
-    // Simple LCS-based line diff
     let llen = left_lines.len();
     let rlen = right_lines.len();
 
-    // For very large inputs, fall back to simple comparison
     if llen > 5000 || rlen > 5000 {
         return simple_diff(&left_lines, &right_lines);
     }
 
-    // Build LCS table
     let mut dp = vec![vec![0usize; rlen + 1]; llen + 1];
     for i in 1..=llen {
         for j in 1..=rlen {
@@ -233,12 +220,11 @@ pub fn text_diff(left: String, right: String) -> DiffResult {
         }
     }
 
-    // Backtrack to find diff
     let mut left_result: Vec<DiffLine> = Vec::new();
     let mut right_result: Vec<DiffLine> = Vec::new();
     let mut i = llen;
     let mut j = rlen;
-    let mut ops: Vec<(String, usize, usize)> = Vec::new(); // (op, left_idx, right_idx)
+    let mut ops: Vec<(String, usize, usize)> = Vec::new();
 
     while i > 0 || j > 0 {
         if i > 0 && j > 0 && left_lines[i-1] == right_lines[j-1] {
@@ -256,24 +242,19 @@ pub fn text_diff(left: String, right: String) -> DiffResult {
     ops.reverse();
 
     let mut stats = DiffStats { added: 0, deleted: 0, changed: 0, same: 0 };
-
-    // Group consecutive del+add as "change"
     let mut idx = 0;
     while idx < ops.len() {
         if ops[idx].0 == "del" {
-            // Collect consecutive dels
             let mut dels = Vec::new();
             while idx < ops.len() && ops[idx].0 == "del" {
                 dels.push(ops[idx].1);
                 idx += 1;
             }
-            // Collect consecutive adds
             let mut adds = Vec::new();
             while idx < ops.len() && ops[idx].0 == "add" {
                 adds.push(ops[idx].2);
                 idx += 1;
             }
-            // Pair them as changes, extras as del/add
             let pairs = dels.len().min(adds.len());
             for k in 0..pairs {
                 left_result.push(DiffLine { line_num: dels[k] + 1, content: left_lines[dels[k]].to_string(), diff_type: "change".to_string() });
@@ -502,7 +483,6 @@ pub fn hmac_sha256(key: String, input: String) -> CryptoResult {
     }
 }
 
-// AES-256-GCM 加解密
 #[tauri::command]
 pub fn aes_encrypt(key: String, input: String) -> CryptoResult {
     use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
@@ -810,5 +790,674 @@ pub fn text_stats(input: String) -> TextStatsResult {
         words: input.split_whitespace().count(),
         lines: input.lines().count(),
         bytes: input.len(),
+    }
+}
+
+// ==================== UUID 生成器 ====================
+#[derive(Serialize)]
+pub struct UuidResult {
+    pub uuid: String,
+    pub uppercase: String,
+    pub no_dash: String,
+    pub braced: String,
+}
+
+#[tauri::command]
+pub fn uuid_generate() -> UuidResult {
+    let id = uuid::Uuid::new_v4();
+    UuidResult {
+        uuid: id.to_string(),
+        uppercase: id.to_string().to_uppercase(),
+        no_dash: id.to_string().replace('-', ""),
+        braced: format!("{{{}}}", id),
+    }
+}
+
+// ==================== 密码生成器 ====================
+#[derive(Serialize)]
+pub struct PasswordResult {
+    pub password: String,
+    pub length: usize,
+    pub entropy: f64,
+}
+
+#[tauri::command]
+pub fn password_generate(length: usize, uppercase: bool, lowercase: bool, numbers: bool, symbols: bool) -> Result<PasswordResult, String> {
+    use rand::Rng;
+    let mut charset = String::new();
+    let upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let lower = "abcdefghijklmnopqrstuvwxyz";
+    let nums = "0123456789";
+    let syms = "!@#$%^&*()_+-=[]{}|;:,.<>?";
+    
+    if uppercase { charset.push_str(upper); }
+    if lowercase { charset.push_str(lower); }
+    if numbers { charset.push_str(nums); }
+    if symbols { charset.push_str(syms); }
+    
+    if charset.is_empty() {
+        charset = format!("{}{}{}{}", upper, lower, nums, syms);
+    }
+    
+    let len = if length < 4 { 4 } else if length > 128 { 128 } else { length };
+    let chars: Vec<char> = charset.chars().collect();
+    let mut rng = rand::thread_rng();
+    let password: String = (0..len).map(|_| chars[rng.gen_range(0..chars.len())]).collect();
+    
+    let pool_size = charset.len() as f64;
+    let entropy = (len as f64) * pool_size.log2();
+    
+    Ok(PasswordResult { password, length: len, entropy: (entropy * 100.0).round() / 100.0 })
+}
+
+// ==================== YAML ↔ JSON 互转 ====================
+#[tauri::command]
+pub fn yaml_to_json(input: String) -> JsonResult {
+    match serde_yaml::from_str::<serde_yaml::Value>(&input) {
+        Ok(yaml_val) => {
+            let json_str = serde_json::to_string(&yaml_val).unwrap_or_default();
+            match serde_json::from_str::<serde_json::Value>(&json_str) {
+                Ok(val) => {
+                    let result = serde_json::to_string_pretty(&val).unwrap_or_default();
+                    JsonResult { success: true, result, error: None }
+                }
+                Err(e) => JsonResult { success: false, result: input, error: Some(format!("JSON转换失败: {}", e)) }
+            }
+        }
+        Err(e) => JsonResult { success: false, result: input, error: Some(format!("YAML解析失败: {}", e)) }
+    }
+}
+
+#[tauri::command]
+pub fn json_to_yaml(input: String) -> JsonResult {
+    match serde_json::from_str::<serde_json::Value>(&input) {
+        Ok(json_val) => {
+            let yaml_str = serde_yaml::to_string(&json_val).unwrap_or_default();
+            JsonResult { success: true, result: yaml_str, error: None }
+        }
+        Err(e) => JsonResult { success: false, result: input, error: Some(format!("JSON解析失败: {}", e)) }
+    }
+}
+
+// ==================== XML 格式化/压缩 ====================
+#[tauri::command]
+pub fn xml_format(input: String) -> JsonResult {
+    let trimmed = input.trim();
+    let re = regex::Regex::new(r">\s+<").unwrap();
+    let compacted = re.replace_all(trimmed, ">\n<");
+    let compacted = regex::Regex::new(r"\n\s+").unwrap().replace_all(&compacted, "\n");
+    
+    let mut result = String::new();
+    let mut depth = 0usize;
+    
+    for line in compacted.lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        
+        if line.starts_with("</") {
+            depth = depth.saturating_sub(1);
+            result.push_str(&format!("{}{}\n", "  ".repeat(depth), line));
+        } else if line.starts_with("<?") || line.starts_with("<!--") {
+            result.push_str(&format!("{}{}\n", "  ".repeat(depth), line));
+        } else if line.ends_with("/>") {
+            result.push_str(&format!("{}{}\n", "  ".repeat(depth), line));
+        } else if line.starts_with("<") {
+            result.push_str(&format!("{}{}\n", "  ".repeat(depth), line));
+            depth += 1;
+        } else {
+            result.push_str(&format!("{}{}\n", "  ".repeat(depth), line));
+        }
+    }
+    
+    JsonResult { success: true, result: result.trim().to_string(), error: None }
+}
+
+#[tauri::command]
+pub fn xml_minify(input: String) -> JsonResult {
+    let re = regex::Regex::new(r">\s+<").unwrap();
+    let result = re.replace_all(&input.trim(), "><").to_string();
+    let result = regex::Regex::new(r"\n\s*").unwrap().replace_all(&result, "").to_string();
+    JsonResult { success: true, result, error: None }
+}
+
+// ==================== 文本大小写/命名转换 ====================
+#[derive(Serialize)]
+pub struct CaseConvertResult {
+    pub camel_case: String,
+    pub pascal_case: String,
+    pub snake_case: String,
+    pub kebab_case: String,
+    pub constant_case: String,
+    pub dot_case: String,
+    pub title_case: String,
+    pub upper_case: String,
+    pub lower_case: String,
+}
+
+#[tauri::command]
+pub fn text_case_convert(input: String) -> CaseConvertResult {
+    let input = input.trim();
+    let words: Vec<String> = {
+        let s = input.replace('_', " ").replace('-', " ");
+        let mut result = String::new();
+        let mut chars = s.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c.is_uppercase() && !result.is_empty() {
+                let last = result.chars().last().unwrap_or(' ');
+                if last.is_lowercase() || last.is_numeric() {
+                    result.push(' ');
+                }
+            }
+            result.push(c);
+        }
+        result.split_whitespace()
+            .map(|w| w.to_lowercase())
+            .collect()
+    };
+
+    if words.is_empty() {
+        return CaseConvertResult {
+            camel_case: String::new(),
+            pascal_case: String::new(),
+            snake_case: String::new(),
+            kebab_case: String::new(),
+            constant_case: String::new(),
+            dot_case: String::new(),
+            title_case: String::new(),
+            upper_case: input.to_uppercase(),
+            lower_case: input.to_lowercase(),
+        };
+    }
+
+    let capitalize = |s: &str| -> String {
+        let mut c = s.chars();
+        match c.next() {
+            None => String::new(),
+            Some(f) => f.to_uppercase().collect::<String>() + c.as_str().to_lowercase().as_str(),
+        }
+    };
+
+    CaseConvertResult {
+        camel_case: words.iter().enumerate().map(|(i, w)| if i == 0 { w.clone() } else { capitalize(w) }).collect(),
+        pascal_case: words.iter().map(|w| capitalize(w)).collect(),
+        snake_case: words.join("_"),
+        kebab_case: words.join("-"),
+        constant_case: words.iter().map(|w| w.to_uppercase()).collect::<Vec<_>>().join("_"),
+        dot_case: words.join("."),
+        title_case: words.iter().map(|w| capitalize(w)).collect::<Vec<_>>().join(" "),
+        upper_case: input.to_uppercase(),
+        lower_case: input.to_lowercase(),
+    }
+}
+
+// ==================== CSS 单位转换 ====================
+#[derive(Serialize)]
+pub struct CssUnitResult {
+    pub px: String,
+    pub rem: String,
+    pub em: String,
+    pub pt: String,
+    pub vw: String,
+    pub vh: String,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn css_unit_convert(value: f64, unit: String, base_size: f64, viewport_width: f64, viewport_height: f64) -> CssUnitResult {
+    let px = match unit.as_str() {
+        "px" => value,
+        "rem" => value * base_size,
+        "em" => value * base_size,
+        "pt" => value * (4.0 / 3.0),
+        "vw" => value * viewport_width / 100.0,
+        "vh" => value * viewport_height / 100.0,
+        _ => return CssUnitResult {
+            px: String::new(), rem: String::new(), em: String::new(),
+            pt: String::new(), vw: String::new(), vh: String::new(),
+            error: Some(format!("不支持的单位: {}", unit)),
+        },
+    };
+
+    let fmt = |v: f64| -> String {
+        if (v - v.round()).abs() < 1e-10 { format!("{:.0}", v) } else { format!("{:.4}", v).trim_end_matches('0').trim_end_matches('.').to_string() }
+    };
+
+    CssUnitResult {
+        px: fmt(px),
+        rem: fmt(px / base_size),
+        em: fmt(px / base_size),
+        pt: fmt(px * 0.75),
+        vw: fmt(px / viewport_width * 100.0),
+        vh: fmt(px / viewport_height * 100.0),
+        error: None,
+    }
+}
+
+// ==================== Cron 表达式解析 ====================
+#[derive(Serialize)]
+pub struct CronParseResult {
+    pub description: String,
+    pub next_times: Vec<String>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn cron_parse(expression: String) -> CronParseResult {
+    let parts: Vec<&str> = expression.trim().split_whitespace().collect();
+    
+    let (minute, hour, dom, month, dow) = if parts.len() == 5 {
+        (parts[0], parts[1], parts[2], parts[3], parts[4])
+    } else if parts.len() == 6 {
+        (parts[1], parts[2], parts[3], parts[4], parts[5])
+    } else {
+        return CronParseResult {
+            description: String::new(),
+            next_times: Vec::new(),
+            error: Some("Cron 表达式需要 5 或 6 个字段".to_string()),
+        };
+    };
+
+    let describe_field = |field: &str, name: &str| -> String {
+        if field == "*" { format!("每{}", name) }
+        else if field.starts_with("*/") { format!("每{}{}", &field[2..], name) }
+        else if field.contains(',') { format!("{}的{}", field, name) }
+        else { format!("{}{}", field, name) }
+    };
+
+    let minute_desc = describe_field(minute, "分钟");
+    let hour_desc = describe_field(hour, "小时");
+    let month_desc = if month == "*" { String::new() } else { describe_field(month, "月") };
+    let dow_desc = match dow {
+        "*" => String::new(),
+        "0" | "7" => "周日".to_string(),
+        "1" => "周一".to_string(),
+        "2" => "周二".to_string(),
+        "3" => "周三".to_string(),
+        "4" => "周四".to_string(),
+        "5" => "周五".to_string(),
+        "6" => "周六".to_string(),
+        _ => describe_field(dow, "星期"),
+    };
+    let dom_desc = if dom == "*" { String::new() } else { describe_field(dom, "日") };
+
+    let mut desc_parts = vec![month_desc, dow_desc, dom_desc, hour_desc, minute_desc];
+    desc_parts.retain(|s| !s.is_empty());
+    let description = desc_parts.join("，");
+
+    let next_times = generate_cron_next_times(minute, hour, dom, month, dow, 5);
+
+    CronParseResult {
+        description,
+        next_times,
+        error: None,
+    }
+}
+
+fn generate_cron_next_times(minute: &str, hour: &str, _dom: &str, _month: &str, _dow: &str, count: usize) -> Vec<String> {
+    let mut times = Vec::new();
+    let parse_values = |field: &str, max: i32| -> Vec<i32> {
+        if field == "*" { return (0..max).collect(); }
+        let mut vals = Vec::new();
+        for part in field.split(',') {
+            if part.starts_with("*/") {
+                let step: i32 = part[2..].parse().unwrap_or(1);
+                if step > 0 { vals.extend((0..max).step_by(step as usize)); }
+            } else if part.contains('-') {
+                let bounds: Vec<&str> = part.split('-').collect();
+                if bounds.len() == 2 {
+                    if let (Ok(s), Ok(e)) = (bounds[0].parse::<i32>(), bounds[1].parse::<i32>()) {
+                        vals.extend(s..=e);
+                    }
+                }
+            } else if let Ok(v) = part.parse::<i32>() {
+                vals.push(v);
+            }
+        }
+        vals.sort();
+        vals.dedup();
+        vals
+    };
+
+    let minutes = parse_values(minute, 60);
+    let hours = parse_values(hour, 24);
+
+    if minutes.is_empty() || hours.is_empty() {
+        return times;
+    }
+
+    let now = chrono::Local::now();
+    let mut current = now.with_second(0).unwrap_or(now).with_nanosecond(0).unwrap_or(now);
+    current = current + chrono::Duration::minutes(1);
+
+    while times.len() < count {
+        let m = current.minute() as i32;
+        let h = current.hour() as i32;
+
+        if hours.contains(&h) && minutes.contains(&m) {
+            times.push(current.format("%Y-%m-%d %H:%M").to_string());
+        }
+
+        current = current + chrono::Duration::minutes(1);
+
+        if current.signed_duration_since(now).num_days() > 366 {
+            break;
+        }
+    }
+
+    times
+}
+
+// ==================== 文本去重/排序 ====================
+#[derive(Serialize)]
+pub struct TextProcessResult {
+    pub result: String,
+    pub original_lines: usize,
+    pub result_lines: usize,
+    pub removed: usize,
+}
+
+#[tauri::command]
+pub fn text_deduplicate(input: String) -> TextProcessResult {
+    let lines: Vec<&str> = input.lines().collect();
+    let original = lines.len();
+    let mut seen = std::collections::HashSet::new();
+    let mut result: Vec<&str> = Vec::new();
+    for line in &lines {
+        let trimmed = line.trim();
+        if seen.insert(trimmed) {
+            result.push(line);
+        }
+    }
+    TextProcessResult {
+        result: result.join("\n"),
+        original_lines: original,
+        result_lines: result.len(),
+        removed: original - result.len(),
+    }
+}
+
+#[tauri::command]
+pub fn text_sort(input: String, reverse: bool) -> TextProcessResult {
+    let mut lines: Vec<&str> = input.lines().collect();
+    let original = lines.len();
+    if reverse {
+        lines.sort_by(|a, b| b.cmp(a));
+    } else {
+        lines.sort();
+    }
+    TextProcessResult {
+        result: lines.join("\n"),
+        original_lines: original,
+        result_lines: lines.len(),
+        removed: 0,
+    }
+}
+
+#[tauri::command]
+pub fn text_trim_lines(input: String) -> TextProcessResult {
+    let lines: Vec<&str> = input.lines().collect();
+    let original = lines.len();
+    let result: Vec<String> = lines.iter().map(|l| l.trim().to_string()).collect();
+    let trimmed: Vec<&str> = result.iter().filter(|l| !l.is_empty()).map(|s| s.as_str()).collect();
+    TextProcessResult {
+        result: trimmed.join("\n"),
+        original_lines: original,
+        result_lines: trimmed.len(),
+        removed: original - trimmed.len(),
+    }
+}
+
+// ==================== Lorem Ipsum 生成器 ====================
+#[derive(Serialize)]
+pub struct LoremResult {
+    pub text: String,
+}
+
+#[tauri::command]
+pub fn lorem_generate(paragraphs: usize, r#type: String) -> LoremResult {
+    let words = [
+        "lorem", "ipsum", "dolor", "sit", "amet", "consectetur", "adipiscing", "elit",
+        "sed", "do", "eiusmod", "tempor", "incididunt", "ut", "labore", "et",
+        "dolore", "magna", "aliqua", "enim", "ad", "minim", "veniam", "quis",
+        "nostrud", "exercitation", "ullamco", "laboris", "nisi", "aliquip", "ex",
+        "ea", "commodo", "consequat", "duis", "aute", "irure", "in", "reprehenderit",
+        "voluptate", "velit", "esse", "cillum", "fugiat", "nulla", "pariatur",
+        "excepteur", "sint", "occaecat", "cupidatat", "non", "proident", "sunt",
+        "culpa", "qui", "officia", "deserunt", "mollit", "anim", "id", "est",
+        "laborum",
+    ];
+
+    let chinese_words = [
+        "在这个", "美好的", "世界里", "我们一起", "探索", "未知的", "领域", "发现",
+        "更多的", "可能", "创造", "无限的", "价值", "让技术", "改变", "生活",
+        "从现在", "开始", "追求", "卓越", "不断", "进步", "永不", "停歇",
+        "共同", "成长", "照亮", "前路", "勇敢地", "面对", "挑战", "拥抱",
+        "变化", "每一次", "尝试", "都是", "新的", "起点", "未来", "可期",
+    ];
+
+    let is_chinese = r#type == "chinese";
+    let word_list = if is_chinese { &chinese_words[..] } else { &words[..] };
+
+    let mut rng = rand::thread_rng();
+    use rand::Rng;
+    let mut paragraphs_text = Vec::new();
+
+    for _ in 0..paragraphs.max(1).min(20) {
+        let sentence_count = rng.gen_range(4..8);
+        let mut paragraph = String::new();
+
+        for s in 0..sentence_count {
+            let word_count = rng.gen_range(6..15);
+            let sentence_words: Vec<&str> = (0..word_count)
+                .map(|_| word_list[rng.gen_range(0..word_list.len())])
+                .collect();
+            
+            if is_chinese {
+                paragraph.push_str(&sentence_words.join(""));
+                paragraph.push('。');
+            } else {
+                paragraph.push_str(&sentence_words.join(" "));
+                paragraph.push('.');
+                if s < sentence_count - 1 { paragraph.push(' '); }
+            }
+        }
+
+        if !is_chinese {
+            if let Some(c) = paragraph.chars().next() {
+                paragraph = c.to_uppercase().collect::<String>() + &paragraph[1..];
+            }
+        }
+        paragraphs_text.push(paragraph.trim().to_string());
+    }
+
+    LoremResult {
+        text: paragraphs_text.join("\n\n"),
+    }
+}
+
+// ==================== MIME 类型查询 ====================
+#[derive(Serialize)]
+pub struct MimeResult {
+    pub mime_type: String,
+    pub extensions: Vec<String>,
+    pub error: Option<String>,
+}
+
+static MIME_MAP: &[(&str, &[&str])] = &[
+    ("text/html", &["html", "htm"]),
+    ("text/css", &["css"]),
+    ("text/javascript", &["js", "mjs"]),
+    ("text/plain", &["txt"]),
+    ("text/csv", &["csv"]),
+    ("text/xml", &["xml"]),
+    ("text/markdown", &["md", "markdown"]),
+    ("application/json", &["json"]),
+    ("application/xml", &["xml"]),
+    ("application/pdf", &["pdf"]),
+    ("application/zip", &["zip"]),
+    ("application/gzip", &["gz", "gzip"]),
+    ("application/x-tar", &["tar"]),
+    ("application/x-7z-compressed", &["7z"]),
+    ("application/x-rar-compressed", &["rar"]),
+    ("application/octet-stream", &["bin"]),
+    ("application/wasm", &["wasm"]),
+    ("application/x-yaml", &["yaml", "yml"]),
+    ("image/jpeg", &["jpg", "jpeg"]),
+    ("image/png", &["png"]),
+    ("image/gif", &["gif"]),
+    ("image/svg+xml", &["svg"]),
+    ("image/webp", &["webp"]),
+    ("image/x-icon", &["ico"]),
+    ("image/bmp", &["bmp"]),
+    ("audio/mpeg", &["mp3"]),
+    ("audio/ogg", &["ogg"]),
+    ("audio/wav", &["wav"]),
+    ("audio/flac", &["flac"]),
+    ("video/mp4", &["mp4"]),
+    ("video/webm", &["webm"]),
+    ("video/x-msvideo", &["avi"]),
+    ("video/quicktime", &["mov"]),
+    ("font/woff", &["woff"]),
+    ("font/woff2", &["woff2"]),
+    ("font/ttf", &["ttf"]),
+    ("font/otf", &["otf"]),
+];
+
+#[tauri::command]
+pub fn mime_lookup(input: String) -> Vec<MimeResult> {
+    let input = input.trim().to_lowercase();
+    let mut results = Vec::new();
+
+    if input.contains('/') {
+        for (mime, exts) in MIME_MAP {
+            if mime.starts_with(&input) || mime.contains(&input) {
+                results.push(MimeResult {
+                    mime_type: mime.to_string(),
+                    extensions: exts.iter().map(|e| e.to_string()).collect(),
+                    error: None,
+                });
+            }
+        }
+    } else {
+        for (mime, exts) in MIME_MAP {
+            if exts.iter().any(|e| e.starts_with(&input) || *e == input) {
+                results.push(MimeResult {
+                    mime_type: mime.to_string(),
+                    extensions: exts.iter().map(|e| e.to_string()).collect(),
+                    error: None,
+                });
+            }
+        }
+    }
+
+    if results.is_empty() {
+        results.push(MimeResult {
+            mime_type: String::new(),
+            extensions: Vec::new(),
+            error: Some("未找到匹配的 MIME 类型".to_string()),
+        });
+    }
+
+    results
+}
+
+// ==================== 数字格式化 ====================
+#[derive(Serialize)]
+pub struct NumberFormatResult {
+    pub decimal: String,
+    pub binary: String,
+    pub octal: String,
+    pub hex: String,
+    pub scientific: String,
+    pub grouped: String,
+    pub chinese: String,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn number_format(input: String) -> NumberFormatResult {
+    let input = input.trim();
+    let num: f64 = match input.parse() {
+        Ok(n) => n,
+        Err(_) => return NumberFormatResult {
+            decimal: String::new(),
+            binary: String::new(),
+            octal: String::new(),
+            hex: String::new(),
+            scientific: String::new(),
+            grouped: String::new(),
+            chinese: String::new(),
+            error: Some("无效的数字".to_string()),
+        },
+    };
+
+    let int_part = num.trunc() as i64;
+    let digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+    let units = ["", "十", "百", "千"];
+    let big_units = ["", "万", "亿", "兆"];
+
+    let mut chinese = String::new();
+    if int_part == 0 {
+        chinese = "零".to_string();
+    } else {
+        let mut n = int_part.abs();
+        let mut groups: Vec<String> = Vec::new();
+        
+        while n > 0 {
+            let group = n % 10000;
+            n /= 10000;
+            
+            if group == 0 {
+                groups.push(String::new());
+                continue;
+            }
+
+            let mut group_str = String::new();
+            let g = group as usize;
+            let thousands = g / 1000;
+            let hundreds = (g % 1000) / 100;
+            let tens = (g % 100) / 10;
+            let ones = g % 10;
+
+            if thousands > 0 { group_str.push_str(digits[thousands]); group_str.push_str(units[3]); }
+            if hundreds > 0 { group_str.push_str(digits[hundreds]); group_str.push_str(units[2]); }
+            else if thousands > 0 && (tens > 0 || ones > 0) { group_str.push_str("零"); }
+            if tens > 0 { group_str.push_str(digits[tens]); group_str.push_str(units[1]); }
+            else if hundreds > 0 && ones > 0 { group_str.push_str("零"); }
+            if ones > 0 { group_str.push_str(digits[ones]); }
+
+            groups.push(group_str);
+        }
+
+        if int_part < 0 { chinese.push('负'); }
+        for (i, g) in groups.iter().rev().enumerate() {
+            if !g.is_empty() {
+                chinese.push_str(g);
+                let big_idx = groups.len() - 1 - i;
+                if big_idx > 0 && big_idx < big_units.len() { chinese.push_str(big_units[big_idx]); }
+            }
+        }
+    }
+
+    let grouped_str = {
+        let s = int_part.abs().to_string();
+        let chars: Vec<char> = s.chars().collect();
+        let mut result = String::new();
+        for (i, c) in chars.iter().rev().enumerate() {
+            if i > 0 && i % 3 == 0 { result.insert(0, ','); }
+            result.insert(0, *c);
+        }
+        result
+    };
+
+    NumberFormatResult {
+        decimal: num.to_string(),
+        binary: format!("{:b}", int_part),
+        octal: format!("{:o}", int_part),
+        hex: format!("{:X}", int_part),
+        scientific: format!("{:.6e}", num),
+        grouped: grouped_str,
+        chinese,
+        error: None,
     }
 }

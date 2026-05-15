@@ -372,6 +372,29 @@ function initEditors() {
     // JWT
     editors.jwtInput = makePlainInputEditor('jwt-input-editor');
 
+    // YAML/JSON
+    editors.yamlJsonInput = makePlainInputEditor('yaml-json-input-editor');
+    editors.yamlJsonOutput = makeOutputEditor('yaml-json-output-editor', 'javascript');
+
+    // XML
+    editors.xmlInput = makePlainInputEditor('xml-input-editor');
+    editors.xmlOutput = makePlainOutputEditor('xml-output-editor');
+
+    // Lorem Ipsum
+    editors.loremOutput = makePlainOutputEditor('lorem-output-editor');
+
+    // Text Deduplicate
+    editors.textDedupInput = makePlainInputEditor('text-dedup-input-editor');
+    editors.textDedupOutput = makePlainOutputEditor('text-dedup-output-editor');
+
+    // Text Sort
+    editors.textSortInput = makePlainInputEditor('text-sort-input-editor');
+    editors.textSortOutput = makePlainOutputEditor('text-sort-output-editor');
+
+    // Text Trim
+    editors.textTrimInput = makePlainInputEditor('text-trim-input-editor');
+    editors.textTrimOutput = makePlainOutputEditor('text-trim-output-editor');
+
     // Create search bars for all editors & track focus
     for (const [key, cm] of Object.entries(editors)) {
         createSearchBar(key);
@@ -1041,4 +1064,294 @@ function jsonFoldLevel(level) {
             cm.foldCode(i, null, 'fold');
         }
     }
+}
+
+// ===== 命名转换 =====
+async function convertCase() {
+    const input = document.getElementById('case-convert-input').value.trim();
+    if (!input) return;
+    try {
+        const r = await invoke('text_case_convert', { input });
+        const items = [
+            { label: 'camelCase', value: r.camel_case },
+            { label: 'PascalCase', value: r.pascal_case },
+            { label: 'snake_case', value: r.snake_case },
+            { label: 'kebab-case', value: r.kebab_case },
+            { label: 'CONSTANT_CASE', value: r.constant_case },
+            { label: 'dot.case', value: r.dot_case },
+            { label: 'Title Case', value: r.title_case },
+            { label: 'UPPER CASE', value: r.upper_case },
+            { label: 'lower case', value: r.lower_case },
+        ];
+        document.getElementById('case-convert-result').innerHTML = items.map(it => `
+            <div class="case-item">
+                <div class="case-label">${it.label}</div>
+                <div class="case-value" onclick="copyToClipboard('${escapeHtml(it.value)}')">${escapeHtml(it.value)}</div>
+                <span class="case-copy" onclick="copyToClipboard('${escapeHtml(it.value)}')" title="复制">📋</span>
+            </div>
+        `).join('');
+    } catch(e) {
+        document.getElementById('case-convert-result').innerHTML = `<div style="color:var(--error)">❌ ${e}</div>`;
+    }
+}
+
+// ===== CSS 单位转换 =====
+async function convertCssUnit() {
+    const value = parseFloat(document.getElementById('css-unit-value').value);
+    const unit = document.getElementById('css-unit-from').value;
+    const baseSize = parseFloat(document.getElementById('css-base-size').value) || 16;
+    const vpWidth = parseFloat(document.getElementById('css-vp-width').value) || 1920;
+    const vpHeight = parseFloat(document.getElementById('css-vp-height').value) || 1080;
+    if (isNaN(value)) return;
+    try {
+        const r = await invoke('css_unit_convert', { value, unit, baseSize, viewportWidth: vpWidth, viewportHeight: vpHeight });
+        if (r.error) {
+            document.getElementById('css-unit-result').innerHTML = `<div style="color:var(--error)">❌ ${r.error}</div>`;
+            return;
+        }
+        const items = [
+            { label: 'px', value: r.px },
+            { label: 'rem', value: r.rem },
+            { label: 'em', value: r.em },
+            { label: 'pt', value: r.pt },
+            { label: 'vw', value: r.vw },
+            { label: 'vh', value: r.vh },
+        ];
+        document.getElementById('css-unit-result').innerHTML = items.map(it => `
+            <div class="css-unit-item">
+                <div class="css-unit-label">${it.label}</div>
+                <div class="css-unit-value">${it.value}</div>
+            </div>
+        `).join('');
+    } catch(e) {
+        document.getElementById('css-unit-result').innerHTML = `<div style="color:var(--error)">❌ ${e}</div>`;
+    }
+}
+
+// ===== 数字格式化 =====
+async function formatNumber() {
+    const input = document.getElementById('number-format-input').value.trim();
+    if (!input) return;
+    try {
+        const r = await invoke('number_format', { input });
+        if (r.error) {
+            document.getElementById('number-format-result').innerHTML = `<div style="color:var(--error)">❌ ${r.error}</div>`;
+            return;
+        }
+        const items = [
+            { label: '十进制', value: r.decimal },
+            { label: '二进制', value: r.binary },
+            { label: '八进制', value: r.octal },
+            { label: '十六进制', value: r.hex },
+            { label: '科学计数法', value: r.scientific },
+            { label: '千分位', value: r.grouped },
+            { label: '中文数字', value: r.chinese },
+        ];
+        document.getElementById('number-format-result').innerHTML = items.map(it => `
+            <div class="number-format-item">
+                <div class="number-format-label">${it.label}</div>
+                <div class="number-format-value" onclick="copyToClipboard('${escapeHtml(it.value)}')">${escapeHtml(it.value)}</div>
+            </div>
+        `).join('');
+    } catch(e) {
+        document.getElementById('number-format-result').innerHTML = `<div style="color:var(--error)">❌ ${e}</div>`;
+    }
+}
+
+// ===== YAML/JSON 互转 =====
+async function yamlToJson() {
+    const input = editors.yamlJsonInput.getValue();
+    if (!input.trim()) return;
+    try {
+        const r = await invoke('yaml_to_json', { input });
+        editors.yamlJsonOutput.setValue(r.result);
+        showStatus('yaml-json-status', r.success ? '✓ 转换成功' : '✗ ' + (r.error || ''), r.success ? 'success' : 'error');
+    } catch(e) { showStatus('yaml-json-status', '✗ ' + e, 'error'); }
+}
+
+async function jsonToYaml() {
+    const input = editors.yamlJsonInput.getValue();
+    if (!input.trim()) return;
+    try {
+        const r = await invoke('json_to_yaml', { input });
+        editors.yamlJsonOutput.setValue(r.result);
+        showStatus('yaml-json-status', r.success ? '✓ 转换成功' : '✗ ' + (r.error || ''), r.success ? 'success' : 'error');
+    } catch(e) { showStatus('yaml-json-status', '✗ ' + e, 'error'); }
+}
+
+// ===== XML 工具 =====
+async function xmlFormat() {
+    const input = editors.xmlInput.getValue();
+    if (!input.trim()) return;
+    try {
+        const r = await invoke('xml_format', { input });
+        editors.xmlOutput.setValue(r.result);
+        showStatus('xml-status', r.success ? '✓ 格式化成功' : '✗ ' + (r.error || ''), r.success ? 'success' : 'error');
+    } catch(e) { showStatus('xml-status', '✗ ' + e, 'error'); }
+}
+
+async function xmlMinify() {
+    const input = editors.xmlInput.getValue();
+    if (!input.trim()) return;
+    try {
+        const r = await invoke('xml_minify', { input });
+        editors.xmlOutput.setValue(r.result);
+        showStatus('xml-status', r.success ? '✓ 压缩成功' : '✗ ' + (r.error || ''), r.success ? 'success' : 'error');
+    } catch(e) { showStatus('xml-status', '✗ ' + e, 'error'); }
+}
+
+// ===== Cron 解析 =====
+async function parseCron() {
+    const input = document.getElementById('cron-input').value.trim();
+    if (!input) return;
+    try {
+        const r = await invoke('cron_parse', { expression: input });
+        if (r.error) {
+            document.getElementById('cron-result').innerHTML = `<div style="color:var(--error)">❌ ${r.error}</div>`;
+            return;
+        }
+        let html = `<div class="cron-desc">📝 ${escapeHtml(r.description)}</div>`;
+        if (r.next_times && r.next_times.length > 0) {
+            html += `<div class="cron-next-title">⏰ 下次执行时间</div>`;
+            html += r.next_times.map((t, i) => `<div class="cron-next-item"><span class="cron-next-num">${i + 1}</span><span class="cron-next-time">${t}</span></div>`).join('');
+        }
+        document.getElementById('cron-result').innerHTML = html;
+    } catch(e) {
+        document.getElementById('cron-result').innerHTML = `<div style="color:var(--error)">❌ ${e}</div>`;
+    }
+}
+
+// ===== MIME 查询 =====
+async function lookupMime() {
+    const input = document.getElementById('mime-input').value.trim();
+    if (!input) return;
+    try {
+        const results = await invoke('mime_lookup', { input });
+        document.getElementById('mime-result').innerHTML = results.map(r => {
+            if (r.error) return `<div class="mime-item" style="color:var(--text-muted)">${r.error}</div>`;
+            return `<div class="mime-item">
+                <div class="mime-type">${escapeHtml(r.mime_type)}</div>
+                <div class="mime-exts">${r.extensions.map(e => '.' + e).join(', ')}</div>
+            </div>`;
+        }).join('');
+    } catch(e) {
+        document.getElementById('mime-result').innerHTML = `<div style="color:var(--error)">❌ ${e}</div>`;
+    }
+}
+
+// ===== UUID 生成器 =====
+async function generateUuid() {
+    try {
+        const r = await invoke('uuid_generate');
+        const container = document.getElementById('uuid-result');
+        container.innerHTML = `
+            <div class="uuid-item" onclick="copyToClipboard('${r.uuid}')">
+                <div class="uuid-format">标准</div>
+                <div class="uuid-value">${r.uuid}</div>
+                <span class="uuid-copy">📋</span>
+            </div>
+            <div class="uuid-item" onclick="copyToClipboard('${r.uppercase}')">
+                <div class="uuid-format">大写</div>
+                <div class="uuid-value">${r.uppercase}</div>
+                <span class="uuid-copy">📋</span>
+            </div>
+            <div class="uuid-item" onclick="copyToClipboard('${r.no_dash}')">
+                <div class="uuid-format">无横线</div>
+                <div class="uuid-value">${r.no_dash}</div>
+                <span class="uuid-copy">📋</span>
+            </div>
+            <div class="uuid-item" onclick="copyToClipboard('${r.braced}')">
+                <div class="uuid-format">花括号</div>
+                <div class="uuid-value">${r.braced}</div>
+                <span class="uuid-copy">📋</span>
+            </div>
+        `;
+    } catch(e) {}
+}
+
+async function generateUuid5() {
+    try {
+        const container = document.getElementById('uuid-result');
+        let html = '';
+        for (let i = 0; i < 5; i++) {
+            const r = await invoke('uuid_generate');
+            html += `<div class="uuid-item" onclick="copyToClipboard('${r.uuid}')">
+                <div class="uuid-value">${r.uuid}</div>
+                <span class="uuid-copy">📋</span>
+            </div>`;
+        }
+        container.innerHTML = html;
+    } catch(e) {}
+}
+
+// ===== 密码生成器 =====
+async function generatePassword() {
+    const length = parseInt(document.getElementById('pwd-length').value) || 16;
+    const uppercase = document.getElementById('pwd-upper').checked;
+    const lowercase = document.getElementById('pwd-lower').checked;
+    const numbers = document.getElementById('pwd-numbers').checked;
+    const symbols = document.getElementById('pwd-symbols').checked;
+    try {
+        const r = await invoke('password_generate', { length, uppercase, lowercase, numbers, symbols });
+        if (r.error) {
+            document.getElementById('password-result').innerHTML = `<div style="color:var(--error)">❌ ${r.error}</div>`;
+            return;
+        }
+        let strength = '弱';
+        let strengthColor = 'var(--error)';
+        if (r.entropy > 60) { strength = '强'; strengthColor = 'var(--success)'; }
+        else if (r.entropy > 40) { strength = '中'; strengthColor = 'var(--warning)'; }
+
+        document.getElementById('password-result').innerHTML = `
+            <div class="pwd-value" onclick="copyToClipboard('${escapeHtml(r.password)}')">${escapeHtml(r.password)}</div>
+            <div class="pwd-meta">
+                <span>长度: ${r.length}</span>
+                <span>信息熵: ${r.entropy} bits</span>
+                <span style="color:${strengthColor}">强度: ${strength}</span>
+            </div>
+        `;
+    } catch(e) {}
+}
+
+// ===== Lorem Ipsum =====
+async function generateLorem() {
+    const paragraphs = parseInt(document.getElementById('lorem-paragraphs').value) || 3;
+    const type = document.getElementById('lorem-type').value;
+    try {
+        const r = await invoke('lorem_generate', { paragraphs, type });
+        editors.loremOutput.setValue(r.text);
+    } catch(e) {}
+}
+
+// ===== 文本去重 =====
+async function deduplicateText() {
+    const input = editors.textDedupInput.getValue();
+    if (!input.trim()) return;
+    try {
+        const r = await invoke('text_deduplicate', { input });
+        editors.textDedupOutput.setValue(r.result);
+        showStatus('text-dedup-status', `✓ 原始 ${r.original_lines} 行 → 去重后 ${r.result_lines} 行，移除 ${r.removed} 行`, 'success');
+    } catch(e) { showStatus('text-dedup-status', '✗ ' + e, 'error'); }
+}
+
+// ===== 文本排序 =====
+async function sortText(reverse) {
+    const input = editors.textSortInput.getValue();
+    if (!input.trim()) return;
+    try {
+        const r = await invoke('text_sort', { input, reverse });
+        editors.textSortOutput.setValue(r.result);
+        showStatus('text-sort-status', `✓ 已${reverse ? '降序' : '升序'}排序，共 ${r.result_lines} 行`, 'success');
+    } catch(e) { showStatus('text-sort-status', '✗ ' + e, 'error'); }
+}
+
+// ===== 去除空行 =====
+async function trimLines() {
+    const input = editors.textTrimInput.getValue();
+    if (!input.trim()) return;
+    try {
+        const r = await invoke('text_trim_lines', { input });
+        editors.textTrimOutput.setValue(r.result);
+        showStatus('text-trim-status', `✓ 原始 ${r.original_lines} 行 → 去除空行后 ${r.result_lines} 行，移除 ${r.removed} 行`, 'success');
+    } catch(e) { showStatus('text-trim-status', '✗ ' + e, 'error'); }
 }
