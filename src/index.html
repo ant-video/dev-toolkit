@@ -602,7 +602,7 @@
                         </div>
                         <div class="btn-group" style="margin-top:12px">
                             <button class="btn btn-primary" onclick="convertImageToBase64()" id="img-to-b64-btn" disabled>转换</button>
-                            <button class="btn btn-ghost" onclick="copyToClipboard(document.getElementById('image-base64-output').value)" id="copy-img-b64-btn" disabled>📋 复制 Base64</button>
+                            <button class="btn btn-ghost" onclick="copyImgBase64()" id="copy-img-b64-btn" disabled>📋 复制 Base64</button>
                         </div>
                         <div id="image-base64-output" class="code-editor code-editor-readonly" style="margin-top:12px;height:200px"></div>
                         <div id="image-b64-status" class="status-msg"></div>
@@ -611,7 +611,7 @@
                     <!-- Base64 → 图片 -->
                     <div class="convert-section">
                         <h3>🔗 Base64 → 图片</h3>
-                        <div id="base64-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="200"></div>
+                        <div id="b64-to-img-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="200"></div>
                         <div class="btn-group" style="margin-top:12px">
                             <button class="btn btn-primary" onclick="convertBase64ToImage()">转换</button>
                             <button class="btn btn-ghost" onclick="pasteFromClipboard()">📋 粘贴</button>
@@ -626,51 +626,31 @@
             <div class="page" id="page-screenshot">
                 <h2>📸 截图工具</h2>
                 <div class="tool-card">
-                    <!-- 截图模式选择 -->
-                    <div class="screenshot-mode-selector">
-                        <button class="btn btn-primary" onclick="startWindowCapture()">🪟 截取窗口</button>
-                        <button class="btn btn-secondary" onclick="startFullCapture()">🖥️ 全屏截图</button>
-                        <button class="btn btn-secondary" onclick="startSelectionCapture()">✂️ 区域选择</button>
-                    </div>
-
-                    <!-- 截图预览和编辑区 -->
-                    <div id="screenshot-canvas-container" style="display:none;margin-top:16px">
-                        <div class="screenshot-toolbar">
-                            <button class="btn btn-small btn-ghost" onclick="cancelScreenshot()">✕ 取消</button>
-                            <button class="btn btn-small btn-ghost" onclick="zoomOut()">🔍−</button>
-                            <button class="btn btn-small btn-ghost" onclick="zoomIn()">🔍+</button>
-                            <button class="btn btn-small btn-ghost" onclick="resetZoom()">🔍重置</button>
-                            <span class="toolbar-divider"></span>
-                            <button class="btn btn-small btn-ghost" onclick="toggleCropMode()" id="crop-mode-btn">✂️ 裁剪</button>
-                            <button class="btn btn-small btn-ghost" onclick="toggleDrawMode()" id="draw-mode-btn">✏️ 标注</button>
-                            <span class="toolbar-divider"></span>
-                            <button class="btn btn-small btn-primary" onclick="saveScreenshot()">💾 保存</button>
+                    <div class="screenshot-hero">
+                        <div class="screenshot-shortcut-hint" id="shortcut-hint">
+                            <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>S</kbd>
                         </div>
-                        <div class="screenshot-canvas-wrapper">
-                            <canvas id="screenshot-canvas"></canvas>
-                            <!-- 裁剪框 -->
-                            <div id="crop-box" class="crop-box" style="display:none">
-                                <div class="crop-handle handle-n"></div>
-                                <div class="crop-handle handle-s"></div>
-                                <div class="crop-handle handle-w"></div>
-                                <div class="crop-handle handle-e"></div>
-                                <div class="crop-handle handle-nw"></div>
-                                <div class="crop-handle handle-ne"></div>
-                                <div class="crop-handle handle-sw"></div>
-                                <div class="crop-handle handle-se"></div>
-                            </div>
-                            <!-- 标注层 -->
-                            <canvas id="draw-canvas" class="draw-overlay" style="display:none"></canvas>
-                        </div>
-                        <div id="screenshot-info" class="screenshot-info"></div>
+                        <p class="screenshot-desc" id="screenshot-desc">随时按下快捷键，选择区域后自动弹出悬浮编辑器</p>
                     </div>
-
-                    <!-- 截图历史 -->
-                    <div id="screenshot-history" style="margin-top:16px;display:none">
-                        <h3>最近截图</h3>
-                        <div id="screenshot-thumbnails" class="thumbnail-grid"></div>
+                    <div class="screenshot-mode-selector" style="margin-top:20px">
+                        <button class="btn btn-primary btn-lg" onclick="triggerScreenshot('selection')">✂️ 区域截图</button>
+                        <button class="btn btn-secondary btn-lg" onclick="triggerScreenshot('window')">🪟 窗口截图</button>
+                        <button class="btn btn-secondary btn-lg" onclick="triggerScreenshot('fullscreen')">🖥️ 全屏截图</button>
                     </div>
+                    <div id="screenshot-status" class="status-msg" style="margin-top:12px"></div>
                 </div>
+                <style>
+                    .screenshot-hero { text-align: center; padding: 40px 20px; }
+                    .screenshot-shortcut-hint { font-size: 28px; margin-bottom: 12px; }
+                    .screenshot-shortcut-hint kbd {
+                        background: #252836; color: #e4e6f0; padding: 6px 12px;
+                        border-radius: 6px; border: 1px solid #3a3d4e;
+                        font-family: inherit; font-size: 22px;
+                        box-shadow: 0 2px 0 #1a1d27;
+                    }
+                    .screenshot-desc { color: #8b8fa3; font-size: 14px; margin-top: 8px; }
+                    .btn-lg { padding: 10px 24px; font-size: 15px; }
+                </style>
             </div>
         </main>
     </div>
