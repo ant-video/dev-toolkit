@@ -1,9 +1,16 @@
 {
   "identifier": "default",
   "description": "Default capability",
-  "windows": ["main"],
+  "windows": ["main", "screenshot-*", "scroll-*"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "core:window:allow-close",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-always-on-top",
+    "opener:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
+    "global-shortcut:allow-is-registered"
   ]
 }

@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>截图编辑器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #1e2130;
+            overflow: hidden;
+            user-select: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            color: #e4e6f0;
+        }
+        #loading-overlay {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            display: flex; align-items: center; justify-content: center;
+            flex-direction: column; gap: 12px;
+            background: #1e2130; z-index: 9999;
+        }
+        #loading-overlay.hidden { display: none; }
+        .editor-container {
+            width: 100vw; height: 100vh;
+            display: flex; flex-direction: column;
+        }
+        .drag-bar {
+            height: 32px; min-height: 32px;
+            background: #161926;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 10px;
+            -webkit-app-region: drag;
+            border-bottom: 1px solid #2e3245;
+        }
+        .drag-bar .title { color: #8b8fa3; font-size: 12px; }
+        .drag-bar .size-info { color: #555a70; font-size: 11px; }
+        .drag-bar .close-btn {
+            -webkit-app-region: no-drag;
+            background: none; border: none; color: #8b8fa3;
+            font-size: 16px; cursor: pointer; padding: 4px 8px; border-radius: 4px;
+        }
+        .drag-bar .close-btn:hover { background: #ff6b6b; color: #fff; }
+
+        .canvas-area {
+            flex: 1; position: relative; overflow: auto;
+            display: flex; align-items: center; justify-content: center;
+            background: #1a1d27;
+        }
+        .canvas-wrapper { position: relative; }
+        #screenshot-canvas { display: block; }
+        #draw-canvas {
+            position: absolute; top: 0; left: 0;
+            pointer-events: none;
+        }
+        #draw-canvas.active { pointer-events: auto; cursor: crosshair; }
+
+        /* 文字输入框 - 在 canvas-wrapper 内，用缩放后的像素坐标定位 */
+        .text-input-wrap {
+            display: none; position: absolute; z-index: 50;
+        }
+        .text-input-wrap.active { display: flex; flex-direction: column; gap: 4px; }
+        .text-input-wrap textarea {
+            background: rgba(0,0,0,0.75); color: #fff;
+            border: 1px solid #6c5ce7; padding: 4px 8px;
+            font-size: 14px; border-radius: 4px; outline: none;
+            min-width: 160px; min-height: 28px; resize: none;
+            line-height: 1.4;
+        }
+        .text-input-actions {
+            display: flex; gap: 4px;
+        }
+        .text-input-actions button {
+            padding: 2px 8px; border: none; border-radius: 3px;
+            cursor: pointer; font-size: 11px;
+        }
+        .text-input-actions .ok { background: #6c5ce7; color: #fff; }
+        .text-input-actions .cancel { background: #444; color: #aaa; }
+
+        .floating-toolbar {
+            position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+            background: #1a1d27; border: 1px solid #2e3245; border-radius: 12px;
+            padding: 6px 10px; display: flex; align-items: center; gap: 4px;
+            z-index: 100; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            -webkit-app-region: no-drag;
+        }
+        .tool-btn {
+            background: none; border: none; color: #e4e6f0;
+            font-size: 13px; padding: 6px 10px; border-radius: 6px;
+            cursor: pointer; display: flex; align-items: center; gap: 4px;
+            white-space: nowrap; transition: background 0.15s;
+        }
+        .tool-btn:hover { background: #252836; }
+        .tool-btn.active { background: #6c5ce7; color: #fff; }
+        .tool-btn.primary { background: #6c5ce7; color: #fff; }
+        .tool-btn.primary:hover { background: #5a4bd6; }
+        .tool-btn.danger:hover { background: #ff6b6b33; color: #ff6b6b; }
+        .tool-divider { width: 1px; height: 20px; background: #2e3245; margin: 0 4px; }
+        .zoom-info { color: #8b8fa3; font-size: 11px; padding: 0 4px; }
+
+        .color-picker {
+            display: none; position: absolute; bottom: 56px; left: 50%; transform: translateX(-50%);
+            background: #1a1d27; border: 1px solid #2e3245; border-radius: 8px;
+            padding: 8px; gap: 6px; z-index: 101; box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+        .color-picker.active { display: flex; }
+        .color-swatch {
+            width: 24px; height: 24px; border-radius: 50%;
+            border: 2px solid transparent; cursor: pointer;
+        }
+        .color-swatch.active { border-color: #fff; }
+
+        /* 裁剪覆盖层 */
+        .crop-overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            display: none; z-index: 10; pointer-events: none;
+        }
+        .crop-overlay.active { display: block; pointer-events: auto; }
+        .crop-mask {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5); cursor: crosshair;
+        }
+        .crop-selection {
+            position: absolute; border: 2px dashed #6c5ce7; cursor: move;
+            display: none;
+        }
+        .crop-selection.visible { display: block; }
+        .crop-handle {
+            position: absolute; width: 10px; height: 10px;
+            background: #6c5ce7; border: 2px solid #fff; border-radius: 2px;
+        }
+        .crop-handle.nw { top: -5px; left: -5px; cursor: nw-resize; }
+        .crop-handle.ne { top: -5px; right: -5px; cursor: ne-resize; }
+        .crop-handle.sw { bottom: -5px; left: -5px; cursor: sw-resize; }
+        .crop-handle.se { bottom: -5px; right: -5px; cursor: se-resize; }
+        .crop-confirm {
+            position: absolute; top: -36px; right: 0;
+            display: none; gap: 4px;
+        }
+        .crop-selection.visible .crop-confirm { display: flex; }
+        .crop-confirm button {
+            padding: 4px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;
+        }
+        .crop-confirm .ok { background: #6c5ce7; color: #fff; }
+        .crop-confirm .cancel { background: #333; color: #aaa; }
+
+        .toast {
+            position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
+            background: #252836; color: #e4e6f0; padding: 8px 20px;
+            border-radius: 8px; font-size: 13px; z-index: 200;
+            border: 1px solid #2e3245; display: none; pointer-events: none;
+        }
+        .toast.show { display: block; }
+        .toast.success { border-color: #00d68f; color: #00d68f; }
+        .toast.error { border-color: #ff6b6b; color: #ff6b6b; }
+    </style>
+</head>
+<body>
+    <div id="loading-overlay">
+        <div style="font-size:32px">📸</div>
+        <div style="color:#8b8fa3;font-size:14px">加载截图中...</div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <div class="editor-container" id="editor-container" style="display:none">
+        <div class="drag-bar">
+            <span class="title">📸 截图编辑器</span>
+            <span class="size-info" id="size-info"></span>
+            <button class="close-btn" onclick="closeWindow()">✕</button>
+        </div>
+        <div class="canvas-area" id="canvas-area">
+            <div class="canvas-wrapper" id="canvas-wrapper">
+                <canvas id="screenshot-canvas"></canvas>
+                <canvas id="draw-canvas"></canvas>
+                <!-- 文字输入框：在 canvas-wrapper 内，坐标与画布一致 -->
+                <div class="text-input-wrap" id="text-input-wrap">
+                    <textarea id="text-input" rows="1" placeholder="输入文字..."
+                        onkeydown="handleTextKey(event)"></textarea>
+                    <div class="text-input-actions">
+                        <button class="ok" onclick="commitText()">✓ 确认</button>
+                        <button class="cancel" onclick="cancelText()">✕ 取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 裁剪覆盖层 -->
+            <div class="crop-overlay" id="crop-overlay">
+                <div class="crop-mask" id="crop-mask"></div>
+                <div class="crop-selection" id="crop-selection">
+                    <div class="crop-handle nw"></div>
+                    <div class="crop-handle ne"></div>
+                    <div class="crop-handle sw"></div>
+                    <div class="crop-handle se"></div>
+                    <div class="crop-confirm">
+                        <button class="ok" onclick="applyCrop()">✓ 裁剪</button>
+                        <button class="cancel" onclick="cancelCrop()">✕ 取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 浮动工具栏 -->
+            <div class="floating-toolbar" id="toolbar">
+                <button class="tool-btn" onclick="zoomOut()">🔍−</button>
+                <span class="zoom-info" id="zoom-info">100%</span>
+                <button class="tool-btn" onclick="zoomIn()">🔍+</button>
+                <button class="tool-btn" onclick="resetZoom()">1:1</button>
+                <div class="tool-divider"></div>
+                <button class="tool-btn" id="crop-btn" onclick="toggleCrop()">✂️</button>
+                <button class="tool-btn" id="draw-btn" onclick="toggleDraw()">✏️</button>
+                <button class="tool-btn" id="arrow-btn" onclick="toggleArrow()">➡️</button>
+                <button class="tool-btn" id="rect-btn" onclick="toggleRect()">⬜</button>
+                <button class="tool-btn" id="text-btn" onclick="toggleText()">🔤</button>
+                <div class="tool-divider"></div>
+                <button class="tool-btn" onclick="toggleColorPicker()">🎨</button>
+                <button class="tool-btn" onclick="undoAction()">↩️</button>
+                <div class="tool-divider"></div>
+                <button class="tool-btn primary" onclick="saveScreenshot()">💾 保存</button>
+                <button class="tool-btn" onclick="copyImage()">📋 复制</button>
+                <button class="tool-btn danger" onclick="closeWindow()">✕</button>
+            </div>
+
+            <div class="color-picker" id="color-picker">
+                <div class="color-swatch active" style="background:#ff6b6b" data-color="#ff6b6b" onclick="selectColor(this)"></div>
+                <div class="color-swatch" style="background:#ffc048" data-color="#ffc048" onclick="selectColor(this)"></div>
+                <div class="color-swatch" style="background:#00d68f" data-color="#00d68f" onclick="selectColor(this)"></div>
+                <div class="color-swatch" style="background:#6c5ce7" data-color="#6c5ce7" onclick="selectColor(this)"></div>
+                <div class="color-swatch" style="background:#00b4d8" data-color="#00b4d8" onclick="selectColor(this)"></div>
+                <div class="color-swatch" style="background:#ffffff" data-color="#ffffff" onclick="selectColor(this)"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let invoke = null;
+        let screenshotImg = null;
+        let zoom = 1;
+        let currentTool = null;
+        let drawColor = '#ff6b6b';
+        let drawWidth = 3;
+        let history = [];
+        const MAX_HISTORY = 30;
+        let isDrawing = false;
+        let startX = 0, startY = 0;
+        let snapshotBeforeDraw = null;
+
+        // 文字输入状态
+        let textCanvasX = 0, textCanvasY = 0;
+        let textDragging = false, textDragStartX = 0, textDragStartY = 0, textOrigLeft = 0, textOrigTop = 0;
+
+        const canvas = document.getElementById('screenshot-canvas');
+        const ctx = canvas.getContext('2d');
+        const drawCanvas = document.getElementById('draw-canvas');
+        const drawCtx = drawCanvas.getContext('2d');
+
+        function showToast(msg, type) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = 'toast show ' + (type || '');
+            clearTimeout(t._timer);
+            t._timer = setTimeout(() => { t.className = 'toast'; }, 2000);
+        }
+
+        // ===== 初始化 =====
+        async function init() {
+            try {
+                if (!window.__TAURI__ || !window.__TAURI__.core) throw new Error('Tauri API 不可用');
+                invoke = window.__TAURI__.core.invoke;
+
+                const data = await invoke('get_screenshot_data');
+                if (!data || !data.success) throw new Error('无法获取截图数据');
+
+                screenshotImg = new Image();
+                await new Promise((resolve, reject) => {
+                    screenshotImg.onload = resolve;
+                    screenshotImg.onerror = () => reject(new Error('图片加载失败'));
+                    screenshotImg.src = data.image_data;
+                });
+
+                canvas.width = screenshotImg.width;
+                canvas.height = screenshotImg.height;
+                drawCanvas.width = screenshotImg.width;
+                drawCanvas.height = screenshotImg.height;
+                renderCanvas();
+
+                const maxW = window.innerWidth - 40;
+                const maxH = window.innerHeight - 100;
+                zoom = Math.min(maxW / screenshotImg.width, maxH / screenshotImg.height, 1);
+                applyZoom();
+
+                document.getElementById('size-info').textContent = screenshotImg.width + ' × ' + screenshotImg.height;
+                saveHistory();
+                document.getElementById('loading-overlay').classList.add('hidden');
+                document.getElementById('editor-container').style.display = 'flex';
+            } catch(e) {
+                console.error('初始化失败:', e);
+                document.getElementById('loading-overlay').innerHTML =
+                    '<div style="font-size:32px">❌</div>' +
+                    '<div style="color:#ff6b6b;font-size:13px;max-width:400px;text-align:center">' + (e.message || e) + '</div>' +
+                    '<button onclick="closeWindow()" style="background:#6c5ce7;color:#fff;border:none;padding:8px 20px;border-radius:6px;cursor:pointer">关闭窗口</button>';
+            }
+        }
+
+        function renderCanvas() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            if (screenshotImg) ctx.drawImage(screenshotImg, 0, 0);
+        }
+
+        function applyZoom() {
+            if (!screenshotImg) return;
+            canvas.style.width = (screenshotImg.width * zoom) + 'px';
+            canvas.style.height = (screenshotImg.height * zoom) + 'px';
+            drawCanvas.style.width = (screenshotImg.width * zoom) + 'px';
+            drawCanvas.style.height = (screenshotImg.height * zoom) + 'px';
+            document.getElementById('zoom-info').textContent = Math.round(zoom * 100) + '%';
+        }
+
+        function zoomIn() { zoom = Math.min(zoom * 1.25, 5); applyZoom(); }
+        function zoomOut() { zoom = Math.max(zoom / 1.25, 0.1); applyZoom(); }
+        function resetZoom() { zoom = 1; applyZoom(); }
+
+        // ===== 工具切换 =====
+        function setTool(tool) {
+            cancelText();
+            currentTool = currentTool === tool ? null : tool;
+            document.querySelectorAll('.floating-toolbar .tool-btn').forEach(b => b.classList.remove('active'));
+            if (currentTool) document.getElementById(currentTool + '-btn')?.classList.add('active');
+            const isDrawTool = ['draw','arrow','rect','text'].includes(currentTool);
+            drawCanvas.classList.toggle('active', isDrawTool);
+            document.getElementById('crop-overlay').classList.toggle('active', currentTool === 'crop');
+            if (currentTool === 'crop') {
+                const sel = document.getElementById('crop-selection');
+                sel.classList.remove('visible');
+                sel.style.left = sel.style.top = sel.style.width = sel.style.height = '0px';
+            }
+        }
+        function toggleCrop() { setTool('crop'); }
+        function toggleDraw() { setTool('draw'); drawWidth = 3; }
+        function toggleArrow() { setTool('arrow'); drawWidth = 3; }
+        function toggleRect() { setTool('rect'); drawWidth = 2; }
+        function toggleText() { setTool('text'); }
+
+        // ===== 画布坐标 =====
+        function canvasCoords(e) {
+            const r = drawCanvas.getBoundingClientRect();
+            return { x: (e.clientX - r.left) / zoom, y: (e.clientY - r.top) / zoom };
+        }
+
+        // ===== 绘制 =====
+        drawCanvas.addEventListener('mousedown', (e) => {
+            if (!currentTool || currentTool === 'crop') return;
+            const { x, y } = canvasCoords(e);
+
+            if (currentTool === 'text') {
+                showTextInput(e, x, y);
+                return;
+            }
+
+            isDrawing = true;
+            startX = x; startY = y;
+
+            if (currentTool === 'draw') {
+                drawCtx.beginPath();
+                drawCtx.moveTo(startX, startY);
+                drawCtx.strokeStyle = drawColor;
+                drawCtx.lineWidth = drawWidth;
+                drawCtx.lineCap = 'round';
+                drawCtx.lineJoin = 'round';
+            } else {
+                snapshotBeforeDraw = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+            }
+        });
+
+        drawCanvas.addEventListener('mousemove', (e) => {
+            if (!isDrawing) return;
+            const { x, y } = canvasCoords(e);
+            if (currentTool === 'draw') {
+                drawCtx.lineTo(x, y);
+                drawCtx.stroke();
+            } else if (snapshotBeforeDraw) {
+                drawCtx.putImageData(snapshotBeforeDraw, 0, 0);
+                if (currentTool === 'arrow') drawArrow(drawCtx, startX, startY, x, y);
+                else if (currentTool === 'rect') {
+                    drawCtx.strokeStyle = drawColor;
+                    drawCtx.lineWidth = drawWidth;
+                    drawCtx.strokeRect(startX, startY, x - startX, y - startY);
+                }
+            }
+        });
+
+        drawCanvas.addEventListener('mouseup', () => { if (isDrawing) { isDrawing = false; snapshotBeforeDraw = null; saveHistory(); } });
+        drawCanvas.addEventListener('mouseleave', () => { if (isDrawing) { isDrawing = false; snapshotBeforeDraw = null; saveHistory(); } });
+
+        function drawArrow(ctx, fx, fy, tx, ty) {
+            const headLen = 14, angle = Math.atan2(ty - fy, tx - fx);
+            ctx.strokeStyle = drawColor; ctx.lineWidth = drawWidth; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(tx, ty); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(tx, ty);
+            ctx.lineTo(tx - headLen * Math.cos(angle - Math.PI / 6), ty - headLen * Math.sin(angle - Math.PI / 6)); ctx.stroke();
+            ctx.beginPath(); ctx.moveTo(tx, ty);
+            ctx.lineTo(tx - headLen * Math.cos(angle + Math.PI / 6), ty - headLen * Math.sin(angle + Math.PI / 6)); ctx.stroke();
+        }
+
+        // ===== 文字输入 =====
+        function showTextInput(e, cx, cy) {
+            textCanvasX = cx; textCanvasY = cy;
+            const wrap = document.getElementById('text-input-wrap');
+            const ta = document.getElementById('text-input');
+            // 定位：canvas-wrapper 内，用缩放后的像素坐标
+            wrap.style.left = (cx * zoom) + 'px';
+            wrap.style.top = (cy * zoom) + 'px';
+            wrap.classList.add('active');
+            ta.value = '';
+            ta.style.color = drawColor;
+            ta.focus();
+        }
+
+        function handleTextKey(e) {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); commitText(); }
+            else if (e.key === 'Escape') cancelText();
+        }
+
+        function commitText() {
+            const ta = document.getElementById('text-input');
+            const text = ta.value.trim();
+            if (text) {
+                const fontSize = 18;
+                drawCtx.font = fontSize + 'px -apple-system, BlinkMacSystemFont, sans-serif';
+                drawCtx.fillStyle = drawColor;
+                drawCtx.textBaseline = 'top';
+                // 支持多行
+                const lines = text.split('\n');
+                lines.forEach((line, i) => {
+                    drawCtx.fillText(line, textCanvasX, textCanvasY + i * fontSize * 1.4);
+                });
+                saveHistory();
+            }
+            cancelText();
+        }
+
+        function cancelText() {
+            document.getElementById('text-input-wrap').classList.remove('active');
+            document.getElementById('text-input').value = '';
+        }
+
+        // 文字输入框可拖拽移动
+        const textWrap = document.getElementById('text-input-wrap');
+        textWrap.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') return;
+            textDragging = true;
+            textDragStartX = e.clientX;
+            textDragStartY = e.clientY;
+            textOrigLeft = parseInt(textWrap.style.left) || 0;
+            textOrigTop = parseInt(textWrap.style.top) || 0;
+            e.preventDefault();
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!textDragging) return;
+            const dx = e.clientX - textDragStartX;
+            const dy = e.clientY - textDragStartY;
+            textWrap.style.left = (textOrigLeft + dx) + 'px';
+            textWrap.style.top = (textOrigTop + dy) + 'px';
+            // 同步更新画布坐标
+            textCanvasX = (parseInt(textWrap.style.left) || 0) / zoom;
+            textCanvasY = (parseInt(textWrap.style.top) || 0) / zoom;
+        });
+        document.addEventListener('mouseup', () => { textDragging = false; });
+
+        // ===== 裁剪 =====
+        let cropDrag = null;
+
+        document.getElementById('crop-mask').addEventListener('mousedown', (e) => {
+            const wrapper = document.getElementById('canvas-wrapper');
+            const wr = wrapper.getBoundingClientRect();
+            const x = e.clientX - wr.left, y = e.clientY - wr.top;
+            const sel = document.getElementById('crop-selection');
+            cropDrag = { type: 'create', startX: x, startY: y };
+            sel.style.left = x + 'px'; sel.style.top = y + 'px';
+            sel.style.width = sel.style.height = '0px';
+            sel.classList.add('visible');
+        });
+
+        document.getElementById('crop-selection').addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('crop-handle') || e.target.tagName === 'BUTTON') return;
+            const sel = document.getElementById('crop-selection');
+            cropDrag = {
+                type: 'move', startX: e.clientX, startY: e.clientY,
+                origLeft: parseInt(sel.style.left) || 0, origTop: parseInt(sel.style.top) || 0
+            };
+            e.stopPropagation();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!cropDrag) return;
+            const sel = document.getElementById('crop-selection');
+            const wrapper = document.getElementById('canvas-wrapper');
+            const wr = wrapper.getBoundingClientRect();
+            if (cropDrag.type === 'create') {
+                const x = e.clientX - wr.left, y = e.clientY - wr.top;
+                sel.style.left = Math.min(cropDrag.startX, x) + 'px';
+                sel.style.top = Math.min(cropDrag.startY, y) + 'px';
+                sel.style.width = Math.abs(x - cropDrag.startX) + 'px';
+                sel.style.height = Math.abs(y - cropDrag.startY) + 'px';
+            } else {
+                sel.style.left = (cropDrag.origLeft + e.clientX - cropDrag.startX) + 'px';
+                sel.style.top = (cropDrag.origTop + e.clientY - cropDrag.startY) + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            // 只有裁剪拖拽在这里结束（文字拖拽也共享 mouseup）
+            if (cropDrag) cropDrag = null;
+        });
+
+        function applyCrop() {
+            const sel = document.getElementById('crop-selection');
+            const left = parseInt(sel.style.left) || 0;
+            const top = parseInt(sel.style.top) || 0;
+            const width = parseInt(sel.style.width) || 0;
+            const height = parseInt(sel.style.height) || 0;
+            if (width < 5 || height < 5) { showToast('裁剪区域太小', 'error'); return; }
+
+            const cx = Math.round(left / zoom), cy = Math.round(top / zoom);
+            const cw = Math.round(width / zoom), ch = Math.round(height / zoom);
+
+            const merged = getMergedCanvas();
+            const cropCanvas = document.createElement('canvas');
+            cropCanvas.width = cw; cropCanvas.height = ch;
+            cropCanvas.getContext('2d').drawImage(merged, cx, cy, cw, ch, 0, 0, cw, ch);
+
+            const dataUrl = cropCanvas.toDataURL('image/png');
+            screenshotImg = new Image();
+            screenshotImg.onload = () => {
+                canvas.width = screenshotImg.width; canvas.height = screenshotImg.height;
+                drawCanvas.width = screenshotImg.width; drawCanvas.height = screenshotImg.height;
+                drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+                renderCanvas();
+                document.getElementById('size-info').textContent = screenshotImg.width + ' × ' + screenshotImg.height;
+                zoom = Math.min((window.innerWidth - 40) / screenshotImg.width, (window.innerHeight - 100) / screenshotImg.height, 1);
+                applyZoom();
+                history = []; saveHistory();
+                showToast('裁剪完成', 'success');
+            };
+            screenshotImg.src = dataUrl;
+            setTool(null);
+        }
+
+        function cancelCrop() {
+            document.getElementById('crop-selection').classList.remove('visible');
+            setTool(null);
+        }
+
+        // ===== 颜色 =====
+        function toggleColorPicker() { document.getElementById('color-picker').classList.toggle('active'); }
+        function selectColor(el) {
+            drawColor = el.dataset.color;
+            document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+            el.classList.add('active');
+        }
+
+        // ===== 历史记录 =====
+        function saveHistory() {
+            history.push(drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height));
+            if (history.length > MAX_HISTORY) history.shift();
+        }
+        function undoAction() {
+            if (history.length > 1) { history.pop(); drawCtx.putImageData(history[history.length - 1], 0, 0); }
+            else if (history.length === 1) { history.pop(); drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height); }
+            showToast('已撤销', '');
+        }
+
+        // ===== 合并 =====
+        function getMergedCanvas() {
+            const m = document.createElement('canvas');
+            m.width = canvas.width; m.height = canvas.height;
+            const mc = m.getContext('2d');
+            mc.drawImage(canvas, 0, 0);
+            mc.drawImage(drawCanvas, 0, 0);
+            return m;
+        }
+        function getMergedBase64() { return getMergedCanvas().toDataURL('image/png').split(',')[1]; }
+
+        // ===== 保存 =====
+        async function saveScreenshot() {
+            try {
+                const result = await invoke('save_screenshot_file', { imageBase64: getMergedBase64() });
+                if (result && result.success) showToast('保存成功', 'success');
+            } catch(e) { showToast('保存失败', 'error'); }
+        }
+
+        // ===== 复制到剪贴板 =====
+        async function copyImage() {
+            try {
+                await invoke('copy_screenshot_to_clipboard', { imageBase64: getMergedBase64() });
+                showToast('已复制到剪贴板', 'success');
+            } catch(e) {
+                showToast('复制失败: ' + (e.message || e), 'error');
+            }
+        }
+
+        // ===== 关闭 =====
+        async function closeWindow() {
+            try { if (invoke) await invoke('close_current_window'); } catch(e) {
+                try { if (window.__TAURI__?.webviewWindow) { const w = window.__TAURI__.webviewWindow.getCurrentWebviewWindow(); if (w) { await w.close(); return; } } } catch(e2) {}
+                window.close();
+            }
+        }
+
+        // ===== 滚轮缩放 =====
+        document.getElementById('canvas-area').addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (e.deltaY < 0) zoomIn(); else zoomOut();
+        }, { passive: false });
+
+        init();
+    </script>
+</body>
+</html>

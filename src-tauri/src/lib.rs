@@ -27,6 +27,7 @@ pub fn run() {
                 .build(),
         )
         .manage(commands::ScreenshotState::default())
+        .manage(commands::ScrollCaptureState::default())
         .invoke_handler(tauri::generate_handler![
             // 时间转换
             commands::timestamp_now,
@@ -107,6 +108,15 @@ pub fn run() {
             commands::copy_screenshot_to_clipboard,
             commands::trigger_screenshot,
             commands::close_current_window,
+            // 滚动截图
+            commands::scroll_capture_start,
+            commands::scroll_capture_set_region,
+            commands::scroll_capture_tick,
+            commands::scroll_capture_finish,
+            commands::scroll_capture_cancel,
+            commands::set_screenshot_data,
+            commands::open_screenshot_editor,
+            commands::trigger_scroll_capture,
         ])
         .setup(move |app| {
             let gs = app.global_shortcut();
