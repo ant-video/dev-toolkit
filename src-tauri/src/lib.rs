@@ -4,13 +4,14 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // macOS: Cmd+Shift+S, Windows: Ctrl+Shift+S, Linux: Ctrl+Shift+S
-    // 避免在 Windows 上使用 Win 键（与系统快捷键冲突，如 Win+Shift+S）
-    let shortcut = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT),
-        Code::KeyS,
-    );
-    let _shortcut_for_compare = shortcut.clone();
+    // macOS: ⌘⇧S (Cmd+Shift+S), Windows/Linux: Ctrl+Shift+S
+    // 注意: macOS 上 CONTROL=⌃Ctrl, SUPER=⌘Cmd
+    let mods = if cfg!(target_os = "macos") {
+        Modifiers::SUPER | Modifiers::SHIFT
+    } else {
+        Modifiers::CONTROL | Modifiers::SHIFT
+    };
+    let shortcut = Shortcut::new(Some(mods), Code::KeyS);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -27,7 +28,6 @@ pub fn run() {
                 .build(),
         )
         .manage(commands::ScreenshotState::default())
-        .manage(commands::ScrollCaptureState::default())
         .invoke_handler(tauri::generate_handler![
             // 时间转换
             commands::timestamp_now,
@@ -108,21 +108,14 @@ pub fn run() {
             commands::copy_screenshot_to_clipboard,
             commands::trigger_screenshot,
             commands::close_current_window,
-            // 滚动截图
-            commands::scroll_capture_start,
-            commands::scroll_capture_set_region,
-            commands::scroll_capture_tick,
-            commands::scroll_capture_finish,
-            commands::scroll_capture_cancel,
+            // 共享命令
             commands::set_screenshot_data,
             commands::open_screenshot_editor,
-            commands::trigger_scroll_capture,
         ])
         .setup(move |app| {
             let gs = app.global_shortcut();
             gs.register(shortcut.clone())
                 .map_err(|e| format!("注册快捷键失败: {}", e))?;
-
             Ok(())
         })
         .run(tauri::generate_context!())

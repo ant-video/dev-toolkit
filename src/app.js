@@ -1578,13 +1578,3 @@ async function triggerScreenshot(mode) {
         }
     }
 }
-
-async function triggerScrollCapture() {
-    try {
-        showStatus('screenshot-status', '⏳ 正在启动滚动截图...', 'info');
-        await invoke('trigger_scroll_capture');
-        showStatus('screenshot-status', '📜 滚动截图窗口已打开，请在弹出窗口中操作', 'success');
-    } catch(e) {
-        showStatus('screenshot-status', '❌ 启动失败: ' + e, 'error');
-    }
-}

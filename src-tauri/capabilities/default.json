@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capability",
-  "windows": ["main", "screenshot-*", "scroll-*"],
+  "windows": ["main", "screenshot-*"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
