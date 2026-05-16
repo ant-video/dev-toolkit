@@ -67,13 +67,49 @@ npm install
 npx tauri dev
 ```
 
-### 构建
+### 本地构建脚本
+
+项目根目录提供了 `build.sh` 脚本，简化本地编译打包流程：
 
 ```bash
+# 查看帮助
+./build.sh --help
+
+# 构建当前平台（macOS 默认 Universal Binary）
+./build.sh
+
+# 构建指定平台
+./build.sh --macos    # macOS (dmg + app)
+./build.sh --linux    # Linux (deb + rpm)
+./build.sh --windows  # Windows (msi + nsis)
+
+# 清理后构建
+./build.sh --clean
+
+# 调试版本构建
+./build.sh --debug
+```
+
+### 手动构建
+
+```bash
+# 安装依赖
+npm install
+
+# 开发模式
+npx tauri dev
+
+# 发布版本构建
 npx tauri build
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`。
+构建产物位于 `src-tauri/target/*/release/bundle/`：
+
+| 平台 | 产物位置 |
+|------|----------|
+| macOS | `src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg` |
+| Linux | `src-tauri/target/release/bundle/deb/*.deb`, `rpm/*.rpm` |
+| Windows | `src-tauri/target/release/bundle/msi/*.msi`, `nsis/*.exe` |
 
 ### 跨平台构建 (GitHub Actions)
 
