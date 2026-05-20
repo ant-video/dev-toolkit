@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capability",
-  "windows": ["main", "screenshot-*"],
+  "windows": ["main", "screenshot-*", "translate-*"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
@@ -11,6 +11,9 @@
     "opener:default",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
-    "global-shortcut:allow-is-registered"
+    "global-shortcut:allow-is-registered",
+    "core:webview:default",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-create-webview-window"
   ]
 }

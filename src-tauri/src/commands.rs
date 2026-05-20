@@ -1046,16 +1046,14 @@ pub struct CronParseResult {
 #[tauri::command]
 pub fn cron_parse(expression: String) -> CronParseResult {
     let parts: Vec<&str> = expression.trim().split_whitespace().collect();
-    
+
     let (minute, hour, dom, month, dow) = if parts.len() == 5 {
         (parts[0], parts[1], parts[2], parts[3], parts[4])
-    } else if parts.len() == 6 {
-        (parts[1], parts[2], parts[3], parts[4], parts[5])
     } else {
         return CronParseResult {
             description: String::new(),
             next_times: Vec::new(),
-            error: Some("Cron 表达式需要 5 或 6 个字段".to_string()),
+            error: Some("Cron 表达式需要 5 个字段（分 时 日 月 周）".to_string()),
         };
     };
 
@@ -1084,7 +1082,7 @@ pub fn cron_parse(expression: String) -> CronParseResult {
 
     let mut desc_parts = vec![month_desc, dow_desc, dom_desc, hour_desc, minute_desc];
     desc_parts.retain(|s| !s.is_empty());
-    let description = desc_parts.join("，");
+    let description = if desc_parts.is_empty() { "每分钟".to_string() } else { desc_parts.join("，") };
 
     let next_times = generate_cron_next_times(minute, hour, dom, month, dow, 5);
 
@@ -1600,6 +1598,73 @@ fn detect_mime(data: &[u8]) -> String {
 }
 
 // ==================== 截图工具 ====================
+
+/// 检查 macOS 屏幕录制权限
+#[derive(Serialize)]
+pub struct ScreenCapturePermissionResult {
+    pub has_permission: bool,
+    pub message: String,
+}
+
+#[tauri::command]
+pub fn check_screen_capture_permission() -> ScreenCapturePermissionResult {
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+
+        // 通过尝试截取一个 1x1 像素的区域来检测权限
+        // 如果没有权限，截图会失败或返回空白
+        let temp_path = std::env::temp_dir().join("dev_toolkit_permission_test.png");
+        let temp_path_str = temp_path.to_string_lossy().to_string();
+
+        // 使用 -R 参数指定区域截图（1x1 像素）
+        let result = Command::new("screencapture")
+            .args(["-x", "-R", "0", "0", "1", "1", &temp_path_str])
+            .output();
+
+        match result {
+            Ok(output) if output.status.success() => {
+                // 检查文件是否存在且大小有效
+                if let Ok(metadata) = std::fs::metadata(&temp_path) {
+                    let _ = std::fs::remove_file(&temp_path);
+                    if metadata.len() > 0 {
+                        // 进一步验证：读取图片并检查是否是有效图片
+                        // 如果没有屏幕录制权限，screencapture 会创建一个桌面壁纸的截图
+                        // 我们无法完全检测，但至少文件创建成功了
+                        return ScreenCapturePermissionResult {
+                            has_permission: true,
+                            message: "屏幕录制权限已授权".to_string(),
+                        };
+                    }
+                }
+                ScreenCapturePermissionResult {
+                    has_permission: false,
+                    message: "无法验证屏幕录制权限，请确保已在系统设置中授权".to_string(),
+                }
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                ScreenCapturePermissionResult {
+                    has_permission: false,
+                    message: format!("截图权限检测失败: {}", stderr),
+                }
+            }
+            Err(e) => ScreenCapturePermissionResult {
+                has_permission: false,
+                message: format!("无法执行截图命令: {}", e),
+            },
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        ScreenCapturePermissionResult {
+            has_permission: true,
+            message: "非 macOS 系统，无需检测屏幕录制权限".to_string(),
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct ScreenshotResult {
     pub success: bool,
@@ -2122,7 +2187,11 @@ pub fn copy_screenshot_to_clipboard(image_base64: String) -> Result<String, Stri
 
 /// 触发截图并打开编辑器窗口
 #[tauri::command]
-pub async fn trigger_screenshot(app: tauri::AppHandle) -> Result<String, String> {
+pub async fn trigger_screenshot(
+    app: tauri::AppHandle,
+    mode: String,
+    hide_main_window: Option<bool>,
+) -> Result<String, String> {
     use base64::prelude::BASE64_STANDARD;
     use std::process::Command;
 
@@ -2130,18 +2199,54 @@ pub async fn trigger_screenshot(app: tauri::AppHandle) -> Result<String, String>
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()));
     let temp_path_str = temp_path.to_string_lossy().to_string();
 
-    // 根据平台执行截图命令
-    if cfg!(target_os = "macos") {
-        // macOS: screencapture 区域截图（交互式选择）
-        let output = Command::new("screencapture")
-            .args(["-s", &temp_path_str])
-            .output()
-            .map_err(|e| format!("截图命令失败: {}", e))?;
-        if !output.status.success() {
-            return Err(format!("截图失败: {}", String::from_utf8_lossy(&output.stderr)));
+    let should_hide_main_window = hide_main_window.unwrap_or(false);
+
+    if should_hide_main_window {
+        // 仅在明确请求截外部内容时才隐藏主窗口；默认保留本应用可见。
+        if cfg!(target_os = "macos") {
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.hide();
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(300));
+
+            let activate_script = r#"
+                tell application "System Events"
+                    set appList to name of every application process whose visible is true and name is not "dev-toolkit"
+                    if (count of appList) > 0 then
+                        set frontApp to item 1 of appList
+                        tell process frontApp
+                            set frontmost to true
+                        end tell
+                    end if
+                end tell
+            "#;
+            let _ = Command::new("osascript")
+                .args(["-e", activate_script])
+                .output();
+
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        } else {
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.hide();
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
+    }
+
+    // 执行截图命令
+    let screenshot_result = if cfg!(target_os = "macos") {
+        // 根据模式选择不同的 screencapture 参数
+        let args = match mode.as_str() {
+            "fullscreen" => vec!["-x".to_string(), temp_path_str.clone()],
+            "window" => vec!["-w".to_string(), "-x".to_string(), temp_path_str.clone()],
+            _ => vec!["-i".to_string(), "-x".to_string(), temp_path_str.clone()], // selection 模式
+        };
+        Command::new("screencapture")
+            .args(&args)
+            .output()
+            .map_err(|e| format!("截图命令失败: {}", e))
     } else if cfg!(target_os = "windows") {
-        // Windows: PowerShell 截取全屏，用户可在编辑器中裁剪
         let ps_script = format!(
             "Add-Type -AssemblyName System.Windows.Forms; \
              Add-Type -AssemblyName System.Drawing; \
@@ -2154,36 +2259,50 @@ pub async fn trigger_screenshot(app: tauri::AppHandle) -> Result<String, String>
              $bmp.Dispose()",
             temp_path_str
         );
-        let output = Command::new("powershell")
+        Command::new("powershell")
             .args(["-NoProfile", "-Command", &ps_script])
             .output()
-            .map_err(|e| format!("截图命令失败: {}", e))?;
-        if !output.status.success() {
-            return Err(format!("截图失败: {}", String::from_utf8_lossy(&output.stderr)));
-        }
+            .map_err(|e| format!("截图命令失败: {}", e))
     } else if cfg!(target_os = "linux") {
-        // Linux: 尝试 gnome-screenshot / scrot
         let output = if which_command_exists("gnome-screenshot") {
             Command::new("gnome-screenshot")
                 .args(["-a", "-f", &temp_path_str])
                 .output()
         } else if which_command_exists("scrot") {
-            Command::new("scrot")
-                .args(["-s", &temp_path_str])
-                .output()
+            Command::new("scrot").args(["-s", &temp_path_str]).output()
         } else if which_command_exists("xfce4-screenshooter") {
             Command::new("xfce4-screenshooter")
                 .args(["-r", "-s", &temp_path_str])
                 .output()
         } else {
-            return Err("未找到截图工具，请安装 gnome-screenshot、scrot 或 xfce4-screenshooter".to_string());
+            if should_hide_main_window {
+                if let Some(main_window) = app.get_webview_window("main") {
+                    let _ = main_window.show();
+                }
+            }
+            return Err("未找到截图工具".to_string());
         };
-        let output = output.map_err(|e| format!("截图命令失败: {}", e))?;
-        if !output.status.success() {
-            return Err(format!("截图失败: {}", String::from_utf8_lossy(&output.stderr)));
-        }
+        output.map_err(|e| format!("截图命令失败: {}", e))
     } else {
+        if should_hide_main_window {
+            if let Some(main_window) = app.get_webview_window("main") {
+                let _ = main_window.show();
+            }
+        }
         return Err("不支持的操作系统".to_string());
+    };
+
+    if should_hide_main_window {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.show();
+            let _ = main_window.set_focus();
+        }
+    }
+
+    // 检查截图结果
+    let output = screenshot_result?;
+    if !output.status.success() {
+        return Err(format!("截图失败: {}", String::from_utf8_lossy(&output.stderr)));
     }
 
     let file_data = std::fs::read(&temp_path)
@@ -2265,3 +2384,606 @@ pub fn open_screenshot_editor(
     Ok("ok".to_string())
 }
 
+// ==================== QR 码工具 ====================
+
+/// 从系统剪贴板读取图片，返回 base64 data URL
+#[tauri::command]
+pub fn read_clipboard_image() -> Result<String, String> {
+    use std::process::Command as StdCommand;
+
+    let temp_path = std::env::temp_dir().join(format!(
+        "dev_toolkit_clipboard_read_{}.png",
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()
+    ));
+    let path_str = temp_path.to_string_lossy().to_string();
+
+    let result = if cfg!(target_os = "macos") {
+        let script = format!(
+            "import AppKit; guard let pb = NSPasteboard.general.data(forType: .tiff), \
+             let rep = NSBitmapImageRep(data: pb), \
+             let png = rep.representation(using: .png, properties: [:]) else {{ exit(1) }}; \
+             try! png.write(to: URL(fileURLWithPath: \"{}\"))",
+            path_str
+        );
+        StdCommand::new("swift").args(["-e", &script]).output()
+    } else if cfg!(target_os = "windows") {
+        let ps_script = format!(
+            "Add-Type -AssemblyName System.Windows.Forms; \
+             Add-Type -AssemblyName System.Drawing; \
+             $img = [System.Windows.Forms.Clipboard]::GetImage(); \
+             if ($img -eq $null) {{ exit 1 }}; \
+             $img.Save('{}', [System.Drawing.Imaging.ImageFormat]::Png)",
+            path_str
+        );
+        StdCommand::new("powershell").args(["-NoProfile", "-Command", &ps_script]).output()
+    } else if cfg!(target_os = "linux") {
+        if which_command_exists("xclip") {
+            StdCommand::new("sh").args(["-c", &format!("xclip -selection clipboard -t image/png -o > '{}'", path_str)]).output()
+        } else {
+            return Err("未找到剪贴板工具，请安装 xclip".to_string());
+        }
+    } else {
+        return Err("不支持的操作系统".to_string());
+    };
+
+    match result {
+        Ok(output) if output.status.success() => {
+            let data = std::fs::read(&temp_path)
+                .map_err(|e| format!("读取临时文件失败: {}", e))?;
+            let _ = std::fs::remove_file(&temp_path);
+            let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+            Ok(format!("data:image/png;base64,{}", b64))
+        }
+        Ok(_) => {
+            let _ = std::fs::remove_file(&temp_path);
+            Err("剪贴板中没有图片".to_string())
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp_path);
+            Err(format!("读取剪贴板失败: {}", e))
+        }
+    }
+}
+#[derive(Serialize)]
+pub struct QrGenerateResult {
+    pub success: bool,
+    pub data_url: String,
+    pub base64: String,
+    pub size_bytes: u64,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct QrDecodeResult {
+    pub success: bool,
+    pub text: String,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn qr_generate(input: String, ec_level: String) -> QrGenerateResult {
+    if input.is_empty() {
+        return QrGenerateResult {
+            success: false,
+            data_url: String::new(),
+            base64: String::new(),
+            size_bytes: 0,
+            error: Some("输入不能为空".to_string()),
+        };
+    }
+
+    let ec = match ec_level.as_str() {
+        "L" => qrcode::EcLevel::L,
+        "Q" => qrcode::EcLevel::Q,
+        "H" => qrcode::EcLevel::H,
+        _ => qrcode::EcLevel::M,
+    };
+
+    let code = match qrcode::QrCode::with_error_correction_level(input.as_bytes(), ec) {
+        Ok(c) => c,
+        Err(e) => {
+            return QrGenerateResult {
+                success: false,
+                data_url: String::new(),
+                base64: String::new(),
+                size_bytes: 0,
+                error: Some(format!("QR 码生成失败: {}", e)),
+            };
+        }
+    };
+
+    let img = code.render::<image::Rgba<u8>>().build();
+    let scaled = image::imageops::resize(&img, img.width() * 4, img.height() * 4, image::imageops::FilterType::Nearest);
+
+    let mut png_buf = Vec::new();
+    let mut cursor = std::io::Cursor::new(&mut png_buf);
+    if let Err(e) = scaled.write_to(&mut cursor, image::ImageFormat::Png) {
+        return QrGenerateResult {
+            success: false,
+            data_url: String::new(),
+            base64: String::new(),
+            size_bytes: 0,
+            error: Some(format!("PNG 编码失败: {}", e)),
+        };
+    }
+
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&png_buf);
+    let data_url = format!("data:image/png;base64,{}", b64);
+
+    QrGenerateResult {
+        success: true,
+        data_url,
+        base64: b64,
+        size_bytes: png_buf.len() as u64,
+        error: None,
+    }
+}
+
+#[tauri::command]
+pub fn qr_decode(image_data: String) -> QrDecodeResult {
+    let pure_base64 = if image_data.contains(',') && image_data.starts_with("data:") {
+        image_data.split(',').nth(1).unwrap_or(&image_data).trim()
+    } else {
+        image_data.trim()
+    };
+
+    let bytes = match base64::engine::general_purpose::STANDARD.decode(pure_base64) {
+        Ok(b) => b,
+        Err(e) => {
+            return QrDecodeResult {
+                success: false,
+                text: String::new(),
+                error: Some(format!("Base64 解码失败: {}", e)),
+            };
+        }
+    };
+
+    let img = match image::load_from_memory(&bytes) {
+        Ok(i) => i.to_luma8(),
+        Err(e) => {
+            return QrDecodeResult {
+                success: false,
+                text: String::new(),
+                error: Some(format!("图片加载失败: {}", e)),
+            };
+        }
+    };
+
+    let mut prepared = rqrr::PreparedImage::prepare(img);
+    let grids = prepared.detect_grids();
+    if grids.is_empty() {
+        return QrDecodeResult {
+            success: false,
+            text: String::new(),
+            error: Some("未检测到 QR 码".to_string()),
+        };
+    }
+
+    match grids[0].decode() {
+        Ok((_, content)) => QrDecodeResult {
+            success: true,
+            text: content,
+            error: None,
+        },
+        Err(e) => QrDecodeResult {
+            success: false,
+            text: String::new(),
+            error: Some(format!("QR 码解码失败: {}", e)),
+        },
+    }
+}
+
+// ==================== HTTP 请求工具 ====================
+#[derive(Serialize, Deserialize, Clone)]
+pub struct HttpRequest {
+    pub method: String,
+    pub url: String,
+    pub headers: std::collections::HashMap<String, String>,
+    pub body_type: String,
+    pub body: String,
+    pub timeout: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct HttpResponse {
+    pub success: bool,
+    pub status: u16,
+    pub status_text: String,
+    pub headers: std::collections::HashMap<String, String>,
+    pub body: String,
+    pub time_ms: u64,
+    pub size_bytes: u64,
+    pub redirects: Vec<HttpRedirect>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct HttpRedirect {
+    pub status: u16,
+    pub status_text: String,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct HttpHistoryEntry {
+    pub id: String,
+    pub request: HttpRequest,
+    pub response: Option<HttpResponse>,
+    pub created_at: i64,
+    pub name: Option<String>,
+    pub folder_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct HttpFolder {
+    pub id: String,
+    pub name: String,
+    pub parent_id: Option<String>,
+    pub created_at: i64,
+}
+
+#[tauri::command]
+pub async fn http_request(req: HttpRequest) -> HttpResponse {
+    let timeout_dur = std::time::Duration::from_secs(if req.timeout == 0 { 30 } else { req.timeout });
+
+    let method = match req.method.to_uppercase().as_str() {
+        "POST" => reqwest::Method::POST,
+        "PUT" => reqwest::Method::PUT,
+        "DELETE" => reqwest::Method::DELETE,
+        "PATCH" => reqwest::Method::PATCH,
+        "HEAD" => reqwest::Method::HEAD,
+        "OPTIONS" => reqwest::Method::OPTIONS,
+        _ => reqwest::Method::GET,
+    };
+
+    // 先用禁止重定向的客户端跟踪重定向链
+    let no_redirect_client = reqwest::Client::builder()
+        .timeout(timeout_dur)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap_or_default();
+
+    let auto_content_type = matches!(req.body_type.as_str(), "json" | "form" | "form-data");
+    let mut redirects: Vec<HttpRedirect> = Vec::new();
+    let mut current_url = req.url.clone();
+    let max_redirects = 10u32;
+
+    for _ in 0..max_redirects {
+        let mut builder = no_redirect_client.request(method.clone(), &current_url);
+        for (k, v) in &req.headers {
+            if !k.is_empty() {
+                if auto_content_type && k.eq_ignore_ascii_case("content-type") {
+                    continue;
+                }
+                builder = builder.header(k.as_str(), v.as_str());
+            }
+        }
+        if req.method != "GET" && req.method != "HEAD" && !req.body.is_empty() {
+            match req.body_type.as_str() {
+                "json" => {
+                    builder = builder.header("Content-Type", "application/json").body(req.body.clone());
+                }
+                "form" => {
+                    if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&req.body) {
+                        builder = builder.form(&map);
+                    } else {
+                        builder = builder.body(req.body.clone());
+                    }
+                }
+                "form-data" => {
+                    if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&req.body) {
+                        let mut form = reqwest::multipart::Form::new();
+                        for (k, v) in &map {
+                            form = form.text(k.clone(), v.clone());
+                        }
+                        builder = builder.multipart(form);
+                    } else {
+                        builder = builder.body(req.body.clone());
+                    }
+                }
+                _ => {
+                    builder = builder.body(req.body.clone());
+                }
+            }
+        }
+
+        match builder.send().await {
+            Ok(resp) => {
+                let status = resp.status().as_u16();
+                if status >= 300 && status < 400 {
+                    if let Some(location) = resp.headers().get("location") {
+                        let location_str = location.to_str().unwrap_or("").to_string();
+                        // 处理相对路径
+                        if location_str.starts_with("http://") || location_str.starts_with("https://") {
+                            current_url = location_str;
+                        } else if location_str.starts_with('/') {
+                            if let Ok(parsed) = url::Url::parse(&req.url) {
+                                current_url = parsed.origin().ascii_serialization() + &location_str;
+                            } else {
+                                current_url = location_str;
+                            }
+                        } else {
+                            current_url = location_str;
+                        }
+                        redirects.push(HttpRedirect {
+                            status,
+                            status_text: resp.status().canonical_reason().unwrap_or("").to_string(),
+                            url: current_url.clone(),
+                        });
+                        continue;
+                    }
+                }
+                // 非重定向响应或无 Location 头，跳出循环用正常客户端发最终请求
+                break;
+            }
+            Err(_) => break,
+        }
+    }
+
+    // 用自动重定向的客户端发送最终请求获取完整响应
+    let client = reqwest::Client::builder()
+        .timeout(timeout_dur)
+        .build()
+        .unwrap_or_default();
+
+    let mut builder = client.request(method.clone(), &req.url);
+    for (k, v) in &req.headers {
+        if !k.is_empty() {
+            if auto_content_type && k.eq_ignore_ascii_case("content-type") {
+                continue;
+            }
+            builder = builder.header(k.as_str(), v.as_str());
+        }
+    }
+    if req.method != "GET" && req.method != "HEAD" && !req.body.is_empty() {
+        match req.body_type.as_str() {
+            "json" => {
+                builder = builder.header("Content-Type", "application/json").body(req.body.clone());
+            }
+            "form" => {
+                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&req.body) {
+                    builder = builder.form(&map);
+                } else {
+                    builder = builder.body(req.body.clone());
+                }
+            }
+            "form-data" => {
+                if let Ok(map) = serde_json::from_str::<std::collections::HashMap<String, String>>(&req.body) {
+                    let mut form = reqwest::multipart::Form::new();
+                    for (k, v) in &map {
+                        form = form.text(k.clone(), v.clone());
+                    }
+                    builder = builder.multipart(form);
+                } else {
+                    builder = builder.body(req.body.clone());
+                }
+            }
+            _ => {
+                builder = builder.body(req.body.clone());
+            }
+        }
+    }
+
+    let start = std::time::Instant::now();
+    match builder.send().await {
+        Ok(resp) => {
+            let elapsed = start.elapsed().as_millis() as u64;
+            let status = resp.status().as_u16();
+            let status_text = resp.status().canonical_reason().unwrap_or("").to_string();
+            let resp_headers: std::collections::HashMap<String, String> = resp
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+            let body_bytes = match resp.bytes().await {
+                Ok(b) => b,
+                Err(e) => {
+                    return HttpResponse {
+                        success: false, status, status_text, headers: resp_headers,
+                        body: String::new(), time_ms: elapsed, size_bytes: 0, redirects,
+                        error: Some(format!("读取响应体失败: {}", e)),
+                    };
+                }
+            };
+            let size = body_bytes.len() as u64;
+            let body = String::from_utf8_lossy(&body_bytes).to_string();
+            HttpResponse {
+                success: true, status, status_text, headers: resp_headers,
+                body, time_ms: elapsed, size_bytes: size, redirects, error: None,
+            }
+        }
+        Err(e) => {
+            let elapsed = start.elapsed().as_millis() as u64;
+            let mut msg = e.to_string();
+            if e.is_timeout() { msg = "请求超时".to_string(); }
+            else if e.is_connect() { msg = format!("连接失败: {}", e); }
+            else if e.is_request() { msg = format!("请求构造失败: {}", e); }
+            HttpResponse {
+                success: false, status: 0, status_text: String::new(),
+                headers: std::collections::HashMap::new(), body: String::new(),
+                time_ms: elapsed, size_bytes: 0, redirects: Vec::new(), error: Some(msg),
+            }
+        }
+    }
+}
+
+fn http_data_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
+    let dir = app.path().app_data_dir().unwrap_or_else(|_| std::env::temp_dir());
+    let dir = dir.join("http");
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+#[tauri::command]
+pub fn http_save_history(app: tauri::AppHandle, entries: Vec<HttpHistoryEntry>) -> Result<(), String> {
+    let path = http_data_dir(&app).join("history.json");
+    let data = serde_json::to_string_pretty(&entries).map_err(|e| format!("序列化失败: {}", e))?;
+    std::fs::write(&path, data).map_err(|e| format!("写入失败: {}", e))
+}
+
+#[tauri::command]
+pub fn http_load_history(app: tauri::AppHandle) -> Vec<HttpHistoryEntry> {
+    let path = http_data_dir(&app).join("history.json");
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn http_save_favorites(app: tauri::AppHandle, entries: Vec<HttpHistoryEntry>) -> Result<(), String> {
+    let path = http_data_dir(&app).join("favorites.json");
+    let data = serde_json::to_string_pretty(&entries).map_err(|e| format!("序列化失败: {}", e))?;
+    std::fs::write(&path, data).map_err(|e| format!("写入失败: {}", e))
+}
+
+#[tauri::command]
+pub fn http_load_favorites(app: tauri::AppHandle) -> Vec<HttpHistoryEntry> {
+    let path = http_data_dir(&app).join("favorites.json");
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn http_save_folders(app: tauri::AppHandle, folders: Vec<HttpFolder>) -> Result<(), String> {
+    let path = http_data_dir(&app).join("folders.json");
+    let data = serde_json::to_string_pretty(&folders).map_err(|e| format!("序列化失败: {}", e))?;
+    std::fs::write(&path, data).map_err(|e| format!("写入失败: {}", e))
+}
+
+#[tauri::command]
+pub fn http_load_folders(app: tauri::AppHandle) -> Vec<HttpFolder> {
+    let path = http_data_dir(&app).join("folders.json");
+    let data = match std::fs::read_to_string(&path) {
+        Ok(d) => d,
+        Err(_) => return Vec::new(),
+    };
+    serde_json::from_str(&data).unwrap_or_default()
+}
+
+// ===== 翻译工具 =====
+#[derive(serde::Serialize)]
+pub struct TranslateResult {
+    pub success: bool,
+    pub result: String,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn translate(text: String, source: String, target: String) -> TranslateResult {
+    if text.trim().is_empty() {
+        return TranslateResult {
+            success: false,
+            result: String::new(),
+            error: Some("请输入要翻译的文本".to_string()),
+        };
+    }
+
+    // MyMemory API: https://api.mymemory.translated.net/get?q=text&langpair=source|target
+    let lang_pair = format!("{}|{}", source, target);
+    let url = format!(
+        "https://api.mymemory.translated.net/get?q={}&langpair={}",
+        urlencoding::encode(&text),
+        urlencoding::encode(&lang_pair)
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default();
+
+    match client.get(&url).send().await {
+        Ok(resp) => {
+            match resp.text().await {
+                Ok(body) => {
+                    // 解析 JSON 响应
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) {
+                        if let Some(response_data) = json.get("responseData") {
+                            if let Some(translated) = response_data.get("translatedText") {
+                                if let Some(translated_text) = translated.as_str() {
+                                    return TranslateResult {
+                                        success: true,
+                                        result: translated_text.to_string(),
+                                        error: None,
+                                    };
+                                }
+                            }
+                        }
+                        // 检查错误信息
+                        if let Some(error_msg) = json.get("responseStatus") {
+                            if error_msg.as_str() != Some("200") {
+                                return TranslateResult {
+                                    success: false,
+                                    result: String::new(),
+                                    error: Some(format!("翻译失败: {:?}", error_msg)),
+                                };
+                            }
+                        }
+                    }
+                    TranslateResult {
+                        success: false,
+                        result: String::new(),
+                        error: Some("解析翻译结果失败".to_string()),
+                    }
+                }
+                Err(e) => TranslateResult {
+                    success: false,
+                    result: String::new(),
+                    error: Some(format!("读取响应失败: {}", e)),
+                },
+            }
+        }
+        Err(e) => TranslateResult {
+            success: false,
+            result: String::new(),
+            error: Some(format!("请求失败: {}", e)),
+        },
+    }
+}
+
+/// 打开在线翻译窗口（WebView）
+#[tauri::command]
+pub async fn open_translate_webview(
+    app: tauri::AppHandle,
+    service: String,
+) -> Result<(), String> {
+    let (url, title) = match service.as_str() {
+        "youdao" => (
+            "https://m.youdao.com/translate".parse::<url::Url>().unwrap(),
+            "有道翻译",
+        ),
+        "google" => (
+            "https://translate.google.com".parse::<url::Url>().unwrap(),
+            "Google 翻译",
+        ),
+        "baidu" => (
+            "https://fanyi.baidu.com".parse::<url::Url>().unwrap(),
+            "百度翻译",
+        ),
+        "deepl" => (
+            "https://www.deepl.com/translator".parse::<url::Url>().unwrap(),
+            "DeepL 翻译",
+        ),
+        _ => return Err(format!("未知的翻译服务: {}", service)),
+    };
+
+    let label = format!("translate-{}", service);
+
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        label,
+        tauri::WebviewUrl::External(url),
+    )
+    .title(title)
+    .inner_size(900.0, 700.0)
+    .center()
+    .resizable(true)
+    .build()
+    .map_err(|e| format!("创建窗口失败: {}", e))?;
+
+    Ok(())
+}

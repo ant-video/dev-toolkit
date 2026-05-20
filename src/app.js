@@ -3177,8 +3177,30 @@ const dbState = {
     editor: null,
 };
 
+// 数据库工具状态显示
+function dbShowStatus(msg, type = 'info') {
+    const el = document.getElementById('db-status');
+    if (!el) {
+        console.log('[DB]', msg, type);
+        return;
+    }
+    el.textContent = msg;
+    el.className = 'status-msg ' + (type === 'error' ? 'status-error' : type === 'success' ? 'status-success' : 'status-info');
+    el.style.display = 'block';
+    clearTimeout(el._hideTimer);
+    if (type !== 'info') {
+        el._hideTimer = setTimeout(() => { el.style.display = 'none'; }, 5000);
+    }
+}
+
 // 初始化数据库工具
 async function initDatabaseTool() {
+    // 避免重复初始化
+    if (dbState.editor) {
+        dbState.editor.refresh();
+        return;
+    }
+
     // 初始化 SQL 编辑器 (CodeMirror)
     const sqlInput = document.getElementById('db-sql-input');
     if (sqlInput && typeof CodeMirror !== 'undefined') {
@@ -3194,6 +3216,8 @@ async function initDatabaseTool() {
                 'Ctrl-Enter': executeQuery,
             },
         });
+        // 延迟刷新确保正确渲染
+        setTimeout(() => dbState.editor && dbState.editor.refresh(), 100);
     }
 
     // 绑定事件
@@ -3296,17 +3320,17 @@ async function testConnection() {
         options: {},
     };
 
-    showStatus('正在测试连接...', 'info');
+    dbShowStatus('正在测试连接...', 'info');
 
     try {
         const result = await invoke('db_test_connection', { config });
         if (result.success) {
-            showStatus(`连接成功! ${result.server_version || ''}`, 'success');
+            dbShowStatus(`连接成功! ${result.server_version || ''}`, 'success');
         } else {
-            showStatus(`连接失败: ${result.message}`, 'error');
+            dbShowStatus(`连接失败: ${result.message}`, 'error');
         }
     } catch (e) {
-        showStatus(`测试失败: ${e}`, 'error');
+        dbShowStatus(`测试失败: ${e}`, 'error');
     }
 }
 
@@ -3330,11 +3354,11 @@ async function saveConnection() {
 
     try {
         const saved = await invoke('db_save_connection', { config });
-        showStatus(`连接 "${saved.name}" 已保存`, 'success');
+        dbShowStatus(`连接 "${saved.name}" 已保存`, 'success');
         closeConnectionModal();
         await loadConnections();
     } catch (e) {
-        showStatus(`保存失败: ${e}`, 'error');
+        dbShowStatus(`保存失败: ${e}`, 'error');
     }
 }
 
@@ -3388,7 +3412,7 @@ function updateConnectionSelect() {
 
 // 连接到数据库
 async function connectToDatabase(connectionId) {
-    showStatus('正在连接...', 'info');
+    dbShowStatus('正在连接...', 'info');
 
     try {
         await invoke('db_connect', { id: connectionId });
@@ -3412,9 +3436,9 @@ async function connectToDatabase(connectionId) {
         // 加载表列表
         await loadTables();
 
-        showStatus('连接成功', 'success');
+        dbShowStatus('连接成功', 'success');
     } catch (e) {
-        showStatus(`连接失败: ${e}`, 'error');
+        dbShowStatus(`连接失败: ${e}`, 'error');
     }
 }
 
@@ -3554,24 +3578,24 @@ async function showTableSchema(tableName) {
             dbState.editor.setValue(sql);
         }
     } catch (e) {
-        showStatus(`获取表结构失败: ${e}`, 'error');
+        dbShowStatus(`获取表结构失败: ${e}`, 'error');
     }
 }
 
 // 执行查询
 async function executeQuery() {
     if (!dbState.currentConnection) {
-        showStatus('请先选择连接', 'error');
+        dbShowStatus('请先选择连接', 'error');
         return;
     }
 
     const sql = dbState.editor ? dbState.editor.getValue() : '';
     if (!sql.trim()) {
-        showStatus('请输入 SQL 语句', 'error');
+        dbShowStatus('请输入 SQL 语句', 'error');
         return;
     }
 
-    showStatus('执行中...', 'info');
+    dbShowStatus('执行中...', 'info');
 
     const startTime = Date.now();
 
@@ -3593,7 +3617,7 @@ async function executeQuery() {
             displayExecuteResult(result, Date.now() - startTime);
         }
     } catch (e) {
-        showStatus(`执行失败: ${e}`, 'error');
+        dbShowStatus(`执行失败: ${e}`, 'error');
         displayError(e, Date.now() - startTime);
     }
 }
@@ -3632,7 +3656,7 @@ function displayQueryResult(result, duration) {
     container.innerHTML = html;
 
     info.textContent = `${result.row_count} 行 | ${duration}ms`;
-    showStatus('查询完成', 'success');
+    dbShowStatus('查询完成', 'success');
 }
 
 // 显示执行结果
@@ -3654,7 +3678,7 @@ function displayExecuteResult(result, duration) {
     infoText += ` | ${duration}ms`;
 
     info.textContent = infoText;
-    showStatus('执行完成', 'success');
+    dbShowStatus('执行完成', 'success');
 }
 
 // 显示错误
@@ -3664,7 +3688,7 @@ function displayError(error, duration) {
 
     container.innerHTML = `<div class="db-result-placeholder" style="color: var(--red);">错误: ${escapeHtml(String(error))}</div>`;
     info.textContent = `错误 | ${duration}ms`;
-    showStatus('执行失败', 'error');
+    dbShowStatus('执行失败', 'error');
 }
 
 // 格式化 SQL

@@ -1049,6 +1049,11 @@ body {
     color: var(--error);
 }
 
+.status-info {
+    background: var(--bg-selection);
+    color: var(--text-primary);
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 768px) {
     .sidebar { width: 180px; min-width: 180px; }
