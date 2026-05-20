@@ -3342,6 +3342,7 @@ async function saveConnection() {
     const form = document.getElementById('db-connection-form');
     const formData = new FormData(form);
     const dbType = formData.get('db_type');
+    const editId = form.dataset.editId;
 
     const config = {
         name: formData.get('name'),
@@ -3354,6 +3355,16 @@ async function saveConnection() {
         ssl_mode: 'preferred',
         options: {},
     };
+
+    // 如果是编辑模式，先删除旧连接
+    if (editId) {
+        try {
+            await invoke('db_delete_connection', { id: editId });
+        } catch (e) {
+            console.error('删除旧连接失败:', e);
+        }
+        delete form.dataset.editId;
+    }
 
     try {
         const saved = await invoke('db_save_connection', { config });
@@ -3395,12 +3406,38 @@ function renderConnectionList() {
             <span class="db-connection-icon">${icons[conn.db_type] || '🗄️'}</span>
             <span class="db-connection-name">${conn.name}</span>
             <span class="db-connection-status"></span>
+            <div class="db-connection-actions">
+                <button class="db-conn-action db-conn-edit" data-id="${conn.id}" title="编辑">✏️</button>
+                <button class="db-conn-action db-conn-delete" data-id="${conn.id}" title="删除">🗑️</button>
+            </div>
         </div>
     `).join('');
 
     // 绑定点击事件
     list.querySelectorAll('.db-connection-item').forEach(item => {
-        item.addEventListener('click', () => connectToDatabase(item.dataset.id));
+        // 单击连接
+        item.addEventListener('click', (e) => {
+            if (e.target.closest('.db-conn-action')) return; // 忽略按钮点击
+            connectToDatabase(item.dataset.id);
+        });
+
+        // 双击断开
+        item.addEventListener('dblclick', () => disconnectDatabase(item.dataset.id));
+    });
+
+    // 绑定编辑和删除按钮
+    list.querySelectorAll('.db-conn-edit').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            editConnection(btn.dataset.id);
+        });
+    });
+
+    list.querySelectorAll('.db-conn-delete').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteConnection(btn.dataset.id);
+        });
     });
 }
 
@@ -3451,6 +3488,86 @@ async function connectToDatabase(connectionId) {
         dbShowStatus('连接成功', 'success');
     } catch (e) {
         dbShowStatus(`连接失败: ${e}`, 'error');
+    }
+}
+
+// 断开连接
+async function disconnectDatabase(connectionId) {
+    try {
+        await invoke('db_disconnect', { id: connectionId });
+
+        if (dbState.currentConnection === connectionId) {
+            dbState.currentConnection = null;
+            dbState.currentDatabase = null;
+
+            // 清空数据库选择器
+            const dbSelect = document.getElementById('db-database-select');
+            if (dbSelect) dbSelect.innerHTML = '<option value="">选择数据库...</option>';
+
+            // 清空表树
+            const tree = document.getElementById('db-tree');
+            if (tree) tree.innerHTML = '';
+        }
+
+        // 更新状态指示器
+        const item = document.querySelector(`.db-connection-item[data-id="${connectionId}"]`);
+        if (item) {
+            item.classList.remove('active');
+            item.querySelector('.db-connection-status')?.classList.remove('connected');
+        }
+
+        dbShowStatus('已断开连接', 'info');
+    } catch (e) {
+        dbShowStatus(`断开失败: ${e}`, 'error');
+    }
+}
+
+// 编辑连接
+async function editConnection(connectionId) {
+    const conn = dbState.connections.find(c => c.id === connectionId);
+    if (!conn) return;
+
+    // 先断开现有连接
+    if (dbState.currentConnection === connectionId) {
+        await disconnectDatabase(connectionId);
+    }
+
+    // 打开弹窗并填充数据
+    const modal = document.getElementById('db-connection-modal');
+    const form = document.getElementById('db-connection-form');
+    if (modal && form) {
+        modal.classList.add('active');
+
+        // 填充表单
+        form.querySelector('[name="name"]').value = conn.name || '';
+        form.querySelector('[name="db_type"]').value = conn.db_type || 'mysql';
+        form.querySelector('[name="host"]').value = conn.host || 'localhost';
+        form.querySelector('[name="port"]').value = conn.port || 3306;
+        form.querySelector('[name="username"]').value = conn.username || '';
+        form.querySelector('[name="database"]').value = conn.database || '';
+
+        // 保存正在编辑的 ID
+        form.dataset.editId = connectionId;
+
+        handleDbTypeChange();
+    }
+}
+
+// 删除连接
+async function deleteConnection(connectionId) {
+    if (!confirm('确定要删除这个连接吗？')) return;
+
+    try {
+        // 先断开
+        if (dbState.currentConnection === connectionId) {
+            await disconnectDatabase(connectionId);
+        }
+
+        await invoke('db_delete_connection', { id: connectionId });
+        await loadConnections();
+        dbShowStatus('连接已删除', 'info');
+    } catch (e) {
+        dbShowStatus(`删除失败: ${e}`, 'error');
     }
 }
 
@@ -3659,16 +3776,21 @@ async function executeQuery() {
         // 判断是查询还是执行
         const isQuery = /^\s*(SELECT|SHOW|DESC|DESCRIBE|EXPLAIN)/i.test(sql);
 
+        // 获取当前选择的数据库
+        const database = dbState.currentDatabase || null;
+
         if (isQuery) {
             const result = await invoke('db_query', {
                 connectionId: dbState.currentConnection,
                 sql,
+                database,
             });
             displayQueryResult(result, Date.now() - startTime);
         } else {
             const result = await invoke('db_execute', {
                 connectionId: dbState.currentConnection,
                 sql,
+                database,
             });
             displayExecuteResult(result, Date.now() - startTime);
         }

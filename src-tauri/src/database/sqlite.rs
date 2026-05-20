@@ -80,6 +80,7 @@ pub async fn get_table_schema(
 pub async fn execute_query(
     pool: &sqlx::sqlite::SqlitePool,
     sql: &str,
+    _database: Option<&str>,
 ) -> Result<QueryResult, String> {
     let start = Instant::now();
 
@@ -144,6 +145,7 @@ pub async fn execute_query(
 pub async fn execute_statement(
     pool: &sqlx::sqlite::SqlitePool,
     sql: &str,
+    _database: Option<&str>,
 ) -> Result<ExecuteResult, String> {
     let start = Instant::now();
 

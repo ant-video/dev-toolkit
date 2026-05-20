@@ -80,14 +80,15 @@ pub async fn db_disconnect(
 pub async fn db_query(
     connection_id: String,
     sql: String,
+    database: Option<String>,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<crate::database::QueryResult, String> {
     let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
 
     match pool {
-        super::pool::ActivePool::MySql(p) => super::mysql::execute_query(&p, &sql).await,
-        super::pool::ActivePool::Postgres(p) => super::postgres::execute_query(&p, &sql).await,
-        super::pool::ActivePool::Sqlite(p) => super::sqlite::execute_query(&p, &sql).await,
+        super::pool::ActivePool::MySql(p) => super::mysql::execute_query(&p, &sql, database.as_deref()).await,
+        super::pool::ActivePool::Postgres(p) => super::postgres::execute_query(&p, &sql, database.as_deref()).await,
+        super::pool::ActivePool::Sqlite(p) => super::sqlite::execute_query(&p, &sql, database.as_deref()).await,
     }
 }
 
@@ -96,14 +97,15 @@ pub async fn db_query(
 pub async fn db_execute(
     connection_id: String,
     sql: String,
+    database: Option<String>,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<crate::database::ExecuteResult, String> {
     let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
 
     match pool {
-        super::pool::ActivePool::MySql(p) => super::mysql::execute_statement(&p, &sql).await,
-        super::pool::ActivePool::Postgres(p) => super::postgres::execute_statement(&p, &sql).await,
-        super::pool::ActivePool::Sqlite(p) => super::sqlite::execute_statement(&p, &sql).await,
+        super::pool::ActivePool::MySql(p) => super::mysql::execute_statement(&p, &sql, database.as_deref()).await,
+        super::pool::ActivePool::Postgres(p) => super::postgres::execute_statement(&p, &sql, database.as_deref()).await,
+        super::pool::ActivePool::Sqlite(p) => super::sqlite::execute_statement(&p, &sql, database.as_deref()).await,
     }
 }
 

@@ -121,8 +121,18 @@ pub async fn get_table_schema(
 pub async fn execute_query(
     pool: &sqlx::mysql::MySqlPool,
     sql: &str,
+    database: Option<&str>,
 ) -> Result<QueryResult, String> {
     let start = Instant::now();
+
+    // 如果指定了数据库，先执行 USE
+    if let Some(db) = database {
+        let use_sql = format!("USE `{}`", db);
+        sqlx::query(&use_sql)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("切换数据库失败: {}", e))?;
+    }
 
     let result = sqlx::query(sql).fetch_all(pool).await;
 
@@ -185,8 +195,18 @@ pub async fn execute_query(
 pub async fn execute_statement(
     pool: &sqlx::mysql::MySqlPool,
     sql: &str,
+    database: Option<&str>,
 ) -> Result<ExecuteResult, String> {
     let start = Instant::now();
+
+    // 如果指定了数据库，先执行 USE
+    if let Some(db) = database {
+        let use_sql = format!("USE `{}`", db);
+        sqlx::query(&use_sql)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("切换数据库失败: {}", e))?;
+    }
 
     let result = sqlx::query(sql).execute(pool).await;
 
