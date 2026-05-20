@@ -3593,27 +3593,39 @@ async function loadDatabases() {
             connectionId: dbState.currentConnection,
         });
 
+        console.log('获取到的数据库列表:', databases);
+
         select.innerHTML = '<option value="">选择数据库...</option>' +
             databases.map(db => `<option value="${db.name}">${db.name}</option>`).join('');
 
-        // 设置当前数据库（使用保存的数据库名，如果存在）
+        // 确定要选择的数据库
+        let targetDb = null;
         if (dbState.currentDatabase) {
             // 检查数据库是否存在
             const exists = databases.some(db => db.name === dbState.currentDatabase);
             if (exists) {
-                select.value = dbState.currentDatabase;
+                targetDb = dbState.currentDatabase;
             } else {
                 // 如果保存的数据库不存在，选择第一个
-                dbState.currentDatabase = databases[0]?.name || '';
-                select.value = dbState.currentDatabase;
+                targetDb = databases[0]?.name || '';
             }
         } else if (databases.length > 0) {
             // 默认选择第一个数据库
-            dbState.currentDatabase = databases[0].name;
-            select.value = dbState.currentDatabase;
+            targetDb = databases[0].name;
+        }
+
+        // 先更新状态，再设置选择器值
+        if (targetDb) {
+            dbState.currentDatabase = targetDb;
+            select.value = targetDb;
         }
 
         console.log('当前数据库:', dbState.currentDatabase);
+
+        // 选择数据库后自动加载表
+        if (dbState.currentDatabase) {
+            await loadTables();
+        }
     } catch (e) {
         console.error('加载数据库列表失败:', e);
         select.innerHTML = '<option value="">加载失败</option>';
@@ -3623,6 +3635,7 @@ async function loadDatabases() {
 // 处理数据库选择变化
 async function handleDatabaseChange(e) {
     const database = e.target.value;
+    console.log('数据库选择变化:', database, '之前:', dbState.currentDatabase);
     if (database) {
         dbState.currentDatabase = database;
         await loadTables();
@@ -3649,14 +3662,24 @@ async function loadTables() {
         return;
     }
 
+    tree.innerHTML = '<div class="db-result-placeholder" style="padding: 16px;">加载中...</div>';
+
     try {
-        console.log('加载表列表, 连接:', dbState.currentConnection, '数据库:', dbState.currentDatabase);
+        const dbName = String(dbState.currentDatabase).trim();
+        console.log('加载表列表, 数据库:', dbName);
+
         const tables = await invoke('db_get_tables', {
             connectionId: dbState.currentConnection,
-            database: dbState.currentDatabase,
+            database: dbName,
         });
 
-        console.log('获取到的表:', tables);
+        console.log('获取到的表数量:', tables?.length);
+
+        if (!tables || tables.length === 0) {
+            tree.innerHTML = '<div class="db-result-placeholder" style="padding: 16px;">无表</div>';
+            return;
+        }
+
         renderTableTree(tables);
     } catch (e) {
         console.error('加载表列表失败:', e);
@@ -3690,10 +3713,10 @@ function renderTableTree(tables) {
     if (allTables.length > 0) {
         html += `
             <div class="db-tree-folder">
-                <div class="db-tree-item"><span class="db-tree-icon">📁</span>表</div>
+                <div class="db-tree-item"><span class="db-tree-icon">📁</span>表 (${allTables.length})</div>
                 <div class="db-tree-children">
                     ${allTables.map(t => `
-                        <div class="db-tree-item" data-table="${t.name}">
+                        <div class="db-tree-item" data-table="${t.name}" data-type="table">
                             <span class="db-tree-icon">📄</span>${t.name}
                         </div>
                     `).join('')}
@@ -3705,10 +3728,10 @@ function renderTableTree(tables) {
     if (allViews.length > 0) {
         html += `
             <div class="db-tree-folder">
-                <div class="db-tree-item"><span class="db-tree-icon">📁</span>视图</div>
+                <div class="db-tree-item"><span class="db-tree-icon">📁</span>视图 (${allViews.length})</div>
                 <div class="db-tree-children">
                     ${allViews.map(t => `
-                        <div class="db-tree-item" data-table="${t.name}">
+                        <div class="db-tree-item" data-table="${t.name}" data-type="view">
                             <span class="db-tree-icon">👁️</span>${t.name}
                         </div>
                     `).join('')}
@@ -3727,19 +3750,162 @@ function renderTableTree(tables) {
         });
     });
 
-    // 绑定表点击事件
+    // 绑定表点击和右键事件
     tree.querySelectorAll('.db-tree-children .db-tree-item').forEach(item => {
+        // 单击 - 插入 SELECT 语句
         item.addEventListener('click', (e) => {
             e.stopPropagation();
             const tableName = item.dataset.table;
             insertSelectStatement(tableName);
         });
+
+        // 双击 - 显示表结构
         item.addEventListener('dblclick', (e) => {
             e.stopPropagation();
             const tableName = item.dataset.table;
             showTableSchema(tableName);
         });
+
+        // 右键菜单
+        item.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showTableContextMenu(e, item.dataset.table, item.dataset.type);
+        });
     });
+}
+
+// 显示表右键菜单
+function showTableContextMenu(e, tableName, tableType) {
+    // 移除已有菜单
+    const existing = document.getElementById('db-context-menu');
+    if (existing) existing.remove();
+
+    const isView = tableType === 'view';
+    const menu = document.createElement('div');
+    menu.id = 'db-context-menu';
+    menu.className = 'db-context-menu';
+    menu.innerHTML = `
+        <div class="db-menu-item" data-action="select">📄 查看数据</div>
+        <div class="db-menu-item" data-action="structure">📋 查看结构</div>
+        <div class="db-menu-item" data-action="insert">➕ 插入数据</div>
+        <div class="db-menu-divider"></div>
+        <div class="db-menu-item" data-action="edit">✏️ 编辑数据</div>
+        <div class="db-menu-divider"></div>
+        ${!isView ? `<div class="db-menu-item db-menu-danger" data-action="truncate">🗑️ 清空表</div>` : ''}
+        ${!isView ? `<div class="db-menu-item db-menu-danger" data-action="drop">❌ 删除表</div>` : ''}
+        ${isView ? `<div class="db-menu-item db-menu-danger" data-action="drop">❌ 删除视图</div>` : ''}
+    `;
+
+    // 定位菜单
+    menu.style.left = e.pageX + 'px';
+    menu.style.top = e.pageY + 'px';
+    document.body.appendChild(menu);
+
+    // 点击其他地方关闭菜单
+    const closeMenu = () => {
+        menu.remove();
+        document.removeEventListener('click', closeMenu);
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+
+    // 绑定菜单项点击
+    menu.querySelectorAll('.db-menu-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const action = item.dataset.action;
+            handleTableAction(action, tableName, tableType);
+            closeMenu();
+        });
+    });
+}
+
+// 处理表操作
+function handleTableAction(action, tableName, tableType) {
+    switch (action) {
+        case 'select':
+            insertSelectStatement(tableName);
+            break;
+        case 'structure':
+            showTableSchema(tableName);
+            break;
+        case 'insert':
+            showInsertDialog(tableName);
+            break;
+        case 'edit':
+            openDataEditor(tableName);
+            break;
+        case 'truncate':
+            if (confirm(`确定要清空表 "${tableName}" 吗？此操作不可恢复！`)) {
+                executeSql(`TRUNCATE TABLE \`${tableName}\`;`);
+            }
+            break;
+        case 'drop':
+            const typeText = tableType === 'view' ? '视图' : '表';
+            if (confirm(`确定要删除${typeText} "${tableName}" 吗？此操作不可恢复！`)) {
+                const sql = tableType === 'view' ? `DROP VIEW \`${tableName}\`;` : `DROP TABLE \`${tableName}\`;`;
+                executeSql(sql);
+            }
+            break;
+    }
+}
+
+// 执行 SQL 并刷新
+async function executeSql(sql) {
+    if (!dbState.currentConnection || !dbState.currentDatabase) {
+        dbShowStatus('请先连接数据库', 'error');
+        return;
+    }
+
+    try {
+        if (dbState.editor) {
+            dbState.editor.setValue(sql);
+        }
+        await executeQuery();
+        // 刷新表列表
+        await loadTables();
+    } catch (e) {
+        dbShowStatus(`执行失败: ${e}`, 'error');
+    }
+}
+
+// 显示插入数据对话框
+async function showInsertDialog(tableName) {
+    try {
+        const schema = await invoke('db_get_table_schema', {
+            connectionId: dbState.currentConnection,
+            database: dbState.currentDatabase,
+            table: tableName,
+        });
+
+        // 生成 INSERT 语句模板
+        let columns = schema.columns.map(col => col.name).join(', ');
+        let placeholders = schema.columns.map(() => '?').join(', ');
+        let sql = `INSERT INTO \`${tableName}\` (${columns})\nVALUES (${placeholders});\n\n-- 字段说明:\n`;
+        schema.columns.forEach(col => {
+            sql += `-- ${col.name}: ${col.data_type}`;
+            if (col.is_primary_key) sql += ' [主键]';
+            if (!col.nullable) sql += ' [必填]';
+            if (col.default) sql += ` [默认: ${col.default}]`;
+            sql += '\n';
+        });
+
+        if (dbState.editor) {
+            dbState.editor.setValue(sql);
+        }
+        dbShowStatus('已生成 INSERT 语句模板', 'info');
+    } catch (e) {
+        dbShowStatus(`获取表结构失败: ${e}`, 'error');
+    }
+}
+
+// 打开数据编辑器
+function openDataEditor(tableName) {
+    const sql = `SELECT * FROM \`${tableName}\` LIMIT 100;`;
+    if (dbState.editor) {
+        dbState.editor.setValue(sql);
+    }
+    executeQuery();
 }
 
 // 插入 SELECT 语句
@@ -3799,6 +3965,7 @@ async function executeQuery() {
 
         // 获取当前选择的数据库
         const database = dbState.currentDatabase || null;
+        console.log('执行查询, 数据库:', database);
 
         if (isQuery) {
             const result = await invoke('db_query', {

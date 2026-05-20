@@ -1,6 +1,6 @@
 use crate::database::{ColumnInfo, ConnectionConfig, DatabaseInfo, ExecuteResult, QueryResult, TableInfo, TableSchema, ColumnSchema, SslMode};
 use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
-use sqlx::{Column, Row};
+use sqlx::{Column, Executor, Row};
 use std::time::Instant;
 
 /// 构建 MySQL 连接字符串（不指定数据库，允许访问所有数据库）
@@ -80,6 +80,7 @@ pub async fn get_databases(pool: &sqlx::mysql::MySqlPool) -> Result<Vec<Database
 
 /// 获取表列表
 pub async fn get_tables(pool: &sqlx::mysql::MySqlPool, database: &str) -> Result<Vec<TableInfo>, String> {
+    println!("[MySQL] 查询表列表, 数据库: {}", database);
     let query = "SELECT TABLE_NAME, TABLE_TYPE, TABLE_ROWS FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME";
     let rows = sqlx::query(query)
         .bind(database)
@@ -87,13 +88,14 @@ pub async fn get_tables(pool: &sqlx::mysql::MySqlPool, database: &str) -> Result
         .await
         .map_err(|e| format!("查询表列表失败: {}", e))?;
 
+    println!("[MySQL] 查询到 {} 张表", rows.len());
     Ok(rows
         .iter()
         .map(|row| TableInfo {
             name: row.get(0),
             schema: Some(database.to_string()),
             table_type: row.get::<String, _>(1),
-            row_count: row.get::<Option<i64>, _>(2),
+            row_count: row.get::<Option<u64>, _>(2),
         })
         .collect())
 }
@@ -140,14 +142,24 @@ pub async fn get_table_schema(
 pub async fn execute_query(
     pool: &sqlx::mysql::MySqlPool,
     sql: &str,
-    _database: Option<&str>,
+    database: Option<&str>,
 ) -> Result<QueryResult, String> {
     let start = Instant::now();
+    println!("[MySQL] 执行查询, 数据库: {:?}, SQL: {}", database, sql);
 
-    // 注意：MySQL 不支持在 prepared statement 中执行 USE 语句
-    // 用户需要使用完整表名：database.table 或确保连接时指定了正确的数据库
+    // 获取一个连接，确保 USE 和后续查询在同一个连接上执行
+    let mut conn = pool.acquire().await.map_err(|e| format!("获取连接失败: {}", e))?;
 
-    let result = sqlx::query(sql).fetch_all(pool).await;
+    // 如果指定了数据库，先执行 USE 切换数据库
+    if let Some(db) = database {
+        let use_sql = format!("USE `{}`", db);
+        println!("[MySQL] 执行: {}", use_sql);
+        conn.execute(use_sql.as_str())
+            .await
+            .map_err(|e| format!("切换数据库失败: {}", e))?;
+    }
+
+    let result = sqlx::query(sql).fetch_all(&mut *conn).await;
 
     match result {
         Ok(rows) => {
@@ -208,14 +220,22 @@ pub async fn execute_query(
 pub async fn execute_statement(
     pool: &sqlx::mysql::MySqlPool,
     sql: &str,
-    _database: Option<&str>,
+    database: Option<&str>,
 ) -> Result<ExecuteResult, String> {
     let start = Instant::now();
 
-    // 注意：MySQL 不支持在 prepared statement 中执行 USE 语句
-    // 用户需要使用完整表名：database.table 或确保连接时指定了正确的数据库
+    // 获取一个连接
+    let mut conn = pool.acquire().await.map_err(|e| format!("获取连接失败: {}", e))?;
 
-    let result = sqlx::query(sql).execute(pool).await;
+    // 如果指定了数据库，先执行 USE 切换数据库
+    if let Some(db) = database {
+        let use_sql = format!("USE `{}`", db);
+        conn.execute(use_sql.as_str())
+            .await
+            .map_err(|e| format!("切换数据库失败: {}", e))?;
+    }
+
+    let result = sqlx::query(sql).execute(&mut *conn).await;
 
     match result {
         Ok(exec_result) => Ok(ExecuteResult {

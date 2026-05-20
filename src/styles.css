@@ -2760,6 +2760,46 @@ body {
     display: block;
 }
 
+/* 数据库右键菜单 */
+.db-context-menu {
+    position: fixed;
+    z-index: 10000;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    min-width: 160px;
+    padding: 4px 0;
+}
+
+.db-menu-item {
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.db-menu-item:hover {
+    background: var(--bg-hover);
+}
+
+.db-menu-item.db-menu-danger {
+    color: var(--red);
+}
+
+.db-menu-item.db-menu-danger:hover {
+    background: rgba(255, 82, 82, 0.1);
+}
+
+.db-menu-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 0;
+}
+
 .db-workspace {
     flex: 1;
     display: flex;

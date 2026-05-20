@@ -78,12 +78,12 @@ pub async fn db_disconnect(
 /// 执行查询
 #[tauri::command]
 pub async fn db_query(
-    connection_id: String,
+    connectionId: String,
     sql: String,
     database: Option<String>,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<crate::database::QueryResult, String> {
-    let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
+    let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
 
     match pool {
         super::pool::ActivePool::MySql(p) => super::mysql::execute_query(&p, &sql, database.as_deref()).await,
@@ -95,12 +95,12 @@ pub async fn db_query(
 /// 执行语句
 #[tauri::command]
 pub async fn db_execute(
-    connection_id: String,
+    connectionId: String,
     sql: String,
     database: Option<String>,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<crate::database::ExecuteResult, String> {
-    let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
+    let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
 
     match pool {
         super::pool::ActivePool::MySql(p) => super::mysql::execute_statement(&p, &sql, database.as_deref()).await,
@@ -112,26 +112,30 @@ pub async fn db_execute(
 /// 获取表列表
 #[tauri::command]
 pub async fn db_get_tables(
-    connection_id: String,
+    connectionId: String,
     database: String,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<Vec<crate::database::TableInfo>, String> {
-    let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
+    println!("[db_get_tables] connectionId: {}, database: {}", connectionId, database);
+    let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
 
-    match pool {
+    let result = match pool {
         super::pool::ActivePool::MySql(p) => super::mysql::get_tables(&p, &database).await,
         super::pool::ActivePool::Postgres(p) => super::postgres::get_tables(&p, &database).await,
         super::pool::ActivePool::Sqlite(p) => super::sqlite::get_tables(&p).await,
-    }
+    };
+
+    println!("[db_get_tables] result: {:?}", result);
+    result
 }
 
 /// 获取数据库列表
 #[tauri::command]
 pub async fn db_get_databases(
-    connection_id: String,
+    connectionId: String,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<Vec<crate::database::DatabaseInfo>, String> {
-    let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
+    let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
 
     match pool {
         super::pool::ActivePool::MySql(p) => super::mysql::get_databases(&p).await,
@@ -150,12 +154,12 @@ pub async fn db_get_databases(
 /// 获取表结构
 #[tauri::command]
 pub async fn db_get_table_schema(
-    connection_id: String,
+    connectionId: String,
     database: String,
     table: String,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<crate::database::TableSchema, String> {
-    let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
+    let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
 
     match pool {
         super::pool::ActivePool::MySql(p) => super::mysql::get_table_schema(&p, &database, &table).await,

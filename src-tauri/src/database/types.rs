@@ -102,7 +102,7 @@ pub struct TableInfo {
     pub name: String,
     pub schema: Option<String>,
     pub table_type: String,
-    pub row_count: Option<i64>,
+    pub row_count: Option<u64>,
 }
 
 /// 表结构
