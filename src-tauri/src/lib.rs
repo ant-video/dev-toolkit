@@ -1,4 +1,5 @@
 mod commands;
+mod database;
 
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
@@ -21,7 +22,13 @@ pub fn run() {
                     if event.state == tauri_plugin_global_shortcut::ShortcutState::Pressed {
                         let app_clone = app.clone();
                         tauri::async_runtime::spawn(async move {
-                            let _ = commands::trigger_screenshot(app_clone).await;
+                            // 快捷键默认使用选择模式（交互式选择区域）
+                            let _ = commands::trigger_screenshot(
+                                app_clone,
+                                "selection".to_string(),
+                                Some(false),
+                            )
+                            .await;
                         });
                     }
                 })
@@ -96,6 +103,21 @@ pub fn run() {
             // 图片 Base64 互转
             commands::image_to_base64,
             commands::base64_to_image,
+            // QR 码工具
+            commands::qr_generate,
+            commands::qr_decode,
+            commands::read_clipboard_image,
+            // HTTP 请求工具
+            commands::http_request,
+            commands::http_save_history,
+            commands::http_load_history,
+            commands::http_save_favorites,
+            commands::http_load_favorites,
+            commands::http_save_folders,
+            commands::http_load_folders,
+            // 翻译工具
+            commands::translate,
+            commands::open_translate_webview,
             // 截图工具（旧，保留兼容）
             commands::screenshot_window,
             commands::crop_image,
@@ -103,6 +125,7 @@ pub fn run() {
             commands::open_save_dialog,
             commands::system_screenshot,
             // 截图编辑器
+            commands::check_screen_capture_permission,
             commands::get_screenshot_data,
             commands::save_screenshot_file,
             commands::copy_screenshot_to_clipboard,
