@@ -3233,6 +3233,9 @@ async function initDatabaseTool() {
     // 连接选择器
     document.getElementById('db-connection-select')?.addEventListener('change', handleConnectionChange);
 
+    // 数据库选择器
+    document.getElementById('db-database-select')?.addEventListener('change', handleDatabaseChange);
+
     // 弹窗关闭
     document.querySelector('#db-connection-modal .modal-close')?.addEventListener('click', closeConnectionModal);
     document.querySelector('#db-connection-modal .modal-cancel')?.addEventListener('click', closeConnectionModal);
@@ -3439,12 +3442,59 @@ async function connectToDatabase(connectionId) {
         // 更新选择器
         document.getElementById('db-connection-select').value = connectionId;
 
+        // 加载数据库列表
+        await loadDatabases();
+
         // 加载表列表
         await loadTables();
 
         dbShowStatus('连接成功', 'success');
     } catch (e) {
         dbShowStatus(`连接失败: ${e}`, 'error');
+    }
+}
+
+// 加载数据库列表
+async function loadDatabases() {
+    if (!dbState.currentConnection) return;
+
+    const select = document.getElementById('db-database-select');
+    if (!select) return;
+
+    try {
+        const conn = dbState.connections.find(c => c.id === dbState.currentConnection);
+
+        // SQLite 只有一个数据库，直接设置
+        if (conn && conn.db_type === 'sqlite') {
+            select.innerHTML = '<option value="main">main</option>';
+            select.value = 'main';
+            dbState.currentDatabase = 'main';
+            return;
+        }
+
+        const databases = await invoke('db_get_databases', {
+            connectionId: dbState.currentConnection,
+        });
+
+        select.innerHTML = '<option value="">选择数据库...</option>' +
+            databases.map(db => `<option value="${db.name}">${db.name}</option>`).join('');
+
+        // 设置当前数据库
+        if (dbState.currentDatabase) {
+            select.value = dbState.currentDatabase;
+        }
+    } catch (e) {
+        console.error('加载数据库列表失败:', e);
+        select.innerHTML = '<option value="">加载失败</option>';
+    }
+}
+
+// 处理数据库选择变化
+async function handleDatabaseChange(e) {
+    const database = e.target.value;
+    if (database) {
+        dbState.currentDatabase = database;
+        await loadTables();
     }
 }
 

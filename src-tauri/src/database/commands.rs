@@ -123,6 +123,28 @@ pub async fn db_get_tables(
     }
 }
 
+/// 获取数据库列表
+#[tauri::command]
+pub async fn db_get_databases(
+    connection_id: String,
+    pool_manager: State<'_, ConnectionPoolManager>,
+) -> Result<Vec<crate::database::DatabaseInfo>, String> {
+    let pool = pool_manager.get_pool(&connection_id).await.ok_or("连接不存在")?;
+
+    match pool {
+        super::pool::ActivePool::MySql(p) => super::mysql::get_databases(&p).await,
+        super::pool::ActivePool::Postgres(p) => super::postgres::get_databases(&p).await,
+        super::pool::ActivePool::Sqlite(_) => {
+            // SQLite 只有一个数据库
+            Ok(vec![crate::database::DatabaseInfo {
+                name: "main".to_string(),
+                charset: None,
+                collation: None,
+            }])
+        }
+    }
+}
+
 /// 获取表结构
 #[tauri::command]
 pub async fn db_get_table_schema(

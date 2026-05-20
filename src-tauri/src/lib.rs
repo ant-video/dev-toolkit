@@ -144,6 +144,7 @@ pub fn run() {
             database::commands::db_disconnect,
             database::commands::db_query,
             database::commands::db_execute,
+            database::commands::db_get_databases,
             database::commands::db_get_tables,
             database::commands::db_get_table_schema,
         ])
