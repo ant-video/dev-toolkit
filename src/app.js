@@ -3418,6 +3418,12 @@ async function connectToDatabase(connectionId) {
         await invoke('db_connect', { id: connectionId });
         dbState.currentConnection = connectionId;
 
+        // 从保存的连接信息中获取数据库名
+        const conn = dbState.connections.find(c => c.id === connectionId);
+        if (conn) {
+            dbState.currentDatabase = conn.database;
+        }
+
         // 更新状态指示器
         document.querySelectorAll('.db-connection-item').forEach(item => {
             item.classList.remove('active');
