@@ -3942,6 +3942,384 @@ async function showTableSchema(tableName) {
     }
 }
 
+// ==================== 数据编辑器 ====================
+
+const dataEditor = {
+    tableName: null,
+    schema: null,
+    data: [],
+    changes: [], // {rowIndex, column, oldValue, newValue}
+    deletedRows: [],
+    newRows: [],
+    page: 1,
+    pageSize: 100,
+    totalRows: 0,
+    primaryKey: null,
+};
+
+// 打开数据编辑器
+function openDataEditor(tableName) {
+    dataEditor.tableName = tableName;
+    dataEditor.page = 1;
+    dataEditor.changes = [];
+    dataEditor.deletedRows = [];
+    dataEditor.newRows = [];
+
+    const modal = document.getElementById('db-data-editor-modal');
+    document.getElementById('db-editor-title').textContent = `编辑: ${tableName}`;
+
+    // 获取表结构
+    try {
+        invoke('db_get_table_schema', {
+            connectionId: dbState.currentConnection,
+            database: dbState.currentDatabase,
+            table: tableName,
+        }).then(schema => {
+            dataEditor.schema = schema;
+
+            // 找主键
+            const pkCol = dataEditor.schema.columns.find(c => c.is_primary_key);
+            dataEditor.primaryKey = pkCol ? pkCol.name : null;
+
+            modal.classList.add('active');
+            loadDataEditorData();
+            initEditorEvents();
+        }).catch(e => {
+            alert('获取表结构失败: ' + e);
+        });
+    } catch (e) {
+        alert('获取表结构失败: ' + e);
+    }
+}
+
+// 加载数据
+async function loadDataEditorData() {
+    const offset = (dataEditor.page - 1) * dataEditor.pageSize;
+
+    try {
+        // 获取总数
+        const countResult = await invoke('db_query', {
+            connectionId: dbState.currentConnection,
+            sql: `SELECT COUNT(*) as cnt FROM \`${dataEditor.tableName}\``,
+            database: dbState.currentDatabase,
+        });
+        dataEditor.totalRows = parseInt(countResult.rows[0]?.[0]) || 0;
+
+        // 获取数据
+        const result = await invoke('db_query', {
+            connectionId: dbState.currentConnection,
+            sql: `SELECT * FROM \`${dataEditor.tableName}\` LIMIT ${dataEditor.pageSize} OFFSET ${offset}`,
+            database: dbState.currentDatabase,
+        });
+
+        dataEditor.data = result.rows || [];
+        renderEditorTable();
+
+        // 更新分页信息
+        const totalPages = Math.ceil(dataEditor.totalRows / dataEditor.pageSize) || 1;
+        document.getElementById('db-editor-page-info').textContent =
+            `第 ${dataEditor.page}/${totalPages} 页，共 ${dataEditor.totalRows} 行`;
+    } catch (e) {
+        document.getElementById('db-editor-status').textContent = '加载失败: ' + e;
+    }
+}
+
+// 渲染表格
+function renderEditorTable() {
+    const thead = document.getElementById('db-editor-thead');
+    const tbody = document.getElementById('db-editor-tbody');
+    const columns = dataEditor.schema.columns;
+
+    // 表头
+    let headerHtml = '<tr><th class="row-checkbox"><input type="checkbox" id="editor-select-all"></th>';
+    columns.forEach((col, i) => {
+        const pk = col.is_primary_key ? ' class="pk"' : '';
+        headerHtml += `<th${pk}>${col.name}<br><small>${col.data_type}</small></th>`;
+    });
+    headerHtml += '</tr>';
+    thead.innerHTML = headerHtml;
+
+    // 表体
+    let bodyHtml = '';
+    dataEditor.data.forEach((row, rowIndex) => {
+        bodyHtml += `<tr data-row="${rowIndex}">`;
+        bodyHtml += `<td class="row-checkbox"><input type="checkbox" class="row-select"></td>`;
+        columns.forEach((col, colIndex) => {
+            const value = row[colIndex];
+            const isPk = col.is_primary_key;
+            const cellClass = isPk ? 'pk' : 'editable';
+            const displayValue = value === null ? 'NULL' : escapeHtml(String(value));
+            const nullClass = value === null ? ' null-value' : '';
+
+            // 检查是否有修改
+            const change = dataEditor.changes.find(c => c.rowIndex === rowIndex && c.column === col.name);
+            const modifiedClass = change ? ' modified' : '';
+            const showValue = change ? escapeHtml(change.newValue) : displayValue;
+
+            bodyHtml += `<td class="${cellClass}${nullClass}${modifiedClass}" data-col="${col.name}" data-col-index="${colIndex}">${showValue}</td>`;
+        });
+        bodyHtml += '</tr>';
+    });
+    tbody.innerHTML = bodyHtml;
+
+    // 绑定单元格点击事件
+    tbody.querySelectorAll('td.editable').forEach(cell => {
+        cell.addEventListener('dblclick', () => startEditCell(cell));
+    });
+
+    // 行选择
+    tbody.querySelectorAll('.row-select').forEach(cb => {
+        cb.addEventListener('change', updateEditorButtons);
+    });
+}
+
+// 开始编辑单元格
+function startEditCell(cell) {
+    if (cell.classList.contains('editing')) return;
+
+    const row = cell.parentElement;
+    const rowIndex = parseInt(row.dataset.row);
+    const colName = cell.dataset.col;
+    const colIndex = parseInt(cell.dataset.colIndex);
+    const column = dataEditor.schema.columns[colIndex];
+
+    const currentValue = dataEditor.data[rowIndex][colIndex];
+
+    // 创建输入框
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentValue === null ? '' : currentValue;
+    input.dataset.original = currentValue;
+
+    cell.classList.add('editing');
+    cell.innerHTML = '';
+    cell.appendChild(input);
+    input.focus();
+    input.select();
+
+    // 保存编辑
+    const saveEdit = () => {
+        const newValue = input.value === '' ? null : input.value;
+
+        // 记录修改
+        const existingChange = dataEditor.changes.findIndex(c => c.rowIndex === rowIndex && c.column === colName);
+        if (existingChange >= 0) {
+            dataEditor.changes[existingChange].newValue = newValue;
+        } else {
+            dataEditor.changes.push({
+                rowIndex,
+                column: colName,
+                oldValue: currentValue,
+                newValue,
+                rowData: dataEditor.data[rowIndex],
+                colIndex,
+            });
+        }
+
+        // 更新显示
+        cell.classList.remove('editing');
+        cell.classList.add('modified');
+        cell.textContent = newValue === null ? 'NULL' : newValue;
+        if (newValue === null) cell.classList.add('null-value');
+        else cell.classList.remove('null-value');
+
+        updateEditorButtons();
+    };
+
+    // 取消编辑
+    const cancelEdit = () => {
+        cell.classList.remove('editing');
+        cell.textContent = currentValue === null ? 'NULL' : currentValue;
+    };
+
+    input.addEventListener('blur', saveEdit);
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            input.blur();
+        } else if (e.key === 'Escape') {
+            input.removeEventListener('blur', saveEdit);
+            cancelEdit();
+        }
+    });
+}
+
+// 初始化事件
+function initEditorEvents() {
+    // 关闭按钮
+    document.querySelector('#db-data-editor-modal .modal-close').onclick = () => {
+        if (dataEditor.changes.length > 0 || dataEditor.deletedRows.length > 0) {
+            if (!confirm('有未保存的更改，确定关闭吗？')) return;
+        }
+        document.getElementById('db-data-editor-modal').classList.remove('active');
+    };
+
+    // 保存
+    document.getElementById('db-editor-save').onclick = saveEditorChanges;
+
+    // 删除行
+    document.getElementById('db-editor-delete-row').onclick = deleteSelectedRows;
+
+    // 添加行
+    document.getElementById('db-editor-add-row').onclick = addNewRow;
+
+    // 刷新
+    document.getElementById('db-editor-refresh').onclick = () => {
+        dataEditor.changes = [];
+        dataEditor.deletedRows = [];
+        loadDataEditorData();
+    };
+
+    // 分页
+    document.getElementById('db-editor-prev').onclick = () => {
+        if (dataEditor.page > 1) {
+            dataEditor.page--;
+            dataEditor.changes = [];
+            loadDataEditorData();
+        }
+    };
+
+    document.getElementById('db-editor-next').onclick = () => {
+        const totalPages = Math.ceil(dataEditor.totalRows / dataEditor.pageSize);
+        if (dataEditor.page < totalPages) {
+            dataEditor.page++;
+            dataEditor.changes = [];
+            loadDataEditorData();
+        }
+    };
+
+    document.getElementById('db-editor-page-size').onchange = (e) => {
+        dataEditor.pageSize = parseInt(e.target.value);
+        dataEditor.page = 1;
+        loadDataEditorData();
+    };
+
+    // 全选
+    document.getElementById('editor-select-all').onchange = (e) => {
+        document.querySelectorAll('#db-editor-tbody .row-select').forEach(cb => {
+            cb.checked = e.target.checked;
+        });
+        updateEditorButtons();
+    };
+
+    updateEditorButtons();
+}
+
+// 更新按钮状态
+function updateEditorButtons() {
+    const hasChanges = dataEditor.changes.length > 0 || dataEditor.deletedRows.length > 0;
+    const hasSelected = document.querySelectorAll('#db-editor-tbody .row-select:checked').length > 0;
+
+    document.getElementById('db-editor-save').disabled = !hasChanges;
+    document.getElementById('db-editor-delete-row').disabled = !hasSelected;
+}
+
+// 保存更改
+async function saveEditorChanges() {
+    const statusEl = document.getElementById('db-editor-status');
+    statusEl.textContent = '保存中...';
+
+    try {
+        let updateCount = 0;
+        let deleteCount = 0;
+
+        // 执行更新
+        for (const change of dataEditor.changes) {
+            const pkCol = dataEditor.primaryKey;
+            if (!pkCol) {
+                throw new Error('无法更新：表没有主键');
+            }
+
+            const pkIndex = dataEditor.schema.columns.findIndex(c => c.name === pkCol);
+            const pkValue = change.rowData[pkIndex];
+            const pkValueSql = pkValue === null ? 'IS NULL' : `= '${escapeSql(pkValue)}'`;
+
+            const sql = `UPDATE \`${dataEditor.tableName}\` SET \`${change.column}\` = ${formatSqlValue(change.newValue)} WHERE \`${pkCol}\` ${pkValueSql}`;
+
+            await invoke('db_execute', {
+                connectionId: dbState.currentConnection,
+                sql,
+                database: dbState.currentDatabase,
+            });
+            updateCount++;
+        }
+
+        // 执行删除
+        for (const rowIndex of dataEditor.deletedRows) {
+            const pkCol = dataEditor.primaryKey;
+            if (!pkCol) {
+                throw new Error('无法删除：表没有主键');
+            }
+
+            const pkIndex = dataEditor.schema.columns.findIndex(c => c.name === pkCol);
+            const pkValue = dataEditor.data[rowIndex][pkIndex];
+            const pkValueSql = pkValue === null ? 'IS NULL' : `= '${escapeSql(pkValue)}'`;
+
+            const sql = `DELETE FROM \`${dataEditor.tableName}\` WHERE \`${pkCol}\` ${pkValueSql}`;
+
+            await invoke('db_execute', {
+                connectionId: dbState.currentConnection,
+                sql,
+                database: dbState.currentDatabase,
+            });
+            deleteCount++;
+        }
+
+        statusEl.textContent = `已保存：${updateCount} 条更新，${deleteCount} 条删除`;
+        dataEditor.changes = [];
+        dataEditor.deletedRows = [];
+        await loadDataEditorData();
+    } catch (e) {
+        statusEl.textContent = '保存失败: ' + e;
+    }
+}
+
+// 删除选中行
+function deleteSelectedRows() {
+    const selected = document.querySelectorAll('#db-editor-tbody .row-select:checked');
+    selected.forEach(cb => {
+        const row = cb.closest('tr');
+        const rowIndex = parseInt(row.dataset.row);
+        if (!dataEditor.deletedRows.includes(rowIndex)) {
+            dataEditor.deletedRows.push(rowIndex);
+        }
+        row.classList.add('deleted');
+        row.style.opacity = '0.5';
+    });
+    updateEditorButtons();
+}
+
+// 添加新行
+async function addNewRow() {
+    // 生成 INSERT 语句模板
+    const columns = dataEditor.schema.columns;
+    const colNames = columns.map(c => `\`${c.name}\``).join(', ');
+    const values = columns.map(c => {
+        if (c.default) return 'DEFAULT';
+        if (c.nullable) return 'NULL';
+        return "''";
+    }).join(', ');
+
+    const sql = `INSERT INTO \`${dataEditor.tableName}\` (${colNames})\nVALUES (${values});`;
+
+    // 关闭编辑器，在 SQL 编辑器中显示
+    document.getElementById('db-data-editor-modal').classList.remove('active');
+    if (dbState.editor) {
+        dbState.editor.setValue(sql);
+    }
+    dbShowStatus('请编辑 INSERT 语句后执行', 'info');
+}
+
+// 格式化 SQL 值
+function formatSqlValue(value) {
+    if (value === null || value === 'NULL') return 'NULL';
+    return `'${escapeSql(value)}'`;
+}
+
+// 转义 SQL
+function escapeSql(str) {
+    return String(str).replace(/'/g, "''");
+}
+
 // 执行查询
 async function executeQuery() {
     if (!dbState.currentConnection) {

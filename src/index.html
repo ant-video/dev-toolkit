@@ -1261,6 +1261,39 @@
                 </div>
             </section>
 
+            <!-- 数据编辑器弹窗 -->
+            <div class="modal" id="db-data-editor-modal">
+                <div class="modal-content db-editor-modal">
+                    <div class="modal-header">
+                        <h3 id="db-editor-title">数据编辑器</h3>
+                        <button class="modal-close">&times;</button>
+                    </div>
+                    <div class="db-editor-toolbar">
+                        <button class="btn btn-primary" id="db-editor-save">💾 保存更改</button>
+                        <button class="btn" id="db-editor-add-row">➕ 添加行</button>
+                        <button class="btn" id="db-editor-delete-row">🗑️ 删除选中</button>
+                        <button class="btn" id="db-editor-refresh">🔄 刷新</button>
+                        <span class="db-editor-status" id="db-editor-status"></span>
+                    </div>
+                    <div class="db-editor-table-wrapper">
+                        <table class="db-editor-table" id="db-editor-table">
+                            <thead id="db-editor-thead"></thead>
+                            <tbody id="db-editor-tbody"></tbody>
+                        </table>
+                    </div>
+                    <div class="db-editor-pagination">
+                        <button class="btn" id="db-editor-prev">◀ 上一页</button>
+                        <span id="db-editor-page-info">第 1 页</span>
+                        <button class="btn" id="db-editor-next">下一页 ▶</button>
+                        <select id="db-editor-page-size" class="db-select">
+                            <option value="50">50 行/页</option>
+                            <option value="100" selected>100 行/页</option>
+                            <option value="200">200 行/页</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
             <!-- 新建连接弹窗 -->
             <div class="modal" id="db-connection-modal">
                 <div class="modal-content db-modal">

@@ -3007,6 +3007,128 @@ body {
     width: 480px;
 }
 
+/* 数据编辑器弹窗 */
+.db-editor-modal {
+    width: 90%;
+    max-width: 1200px;
+    height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.db-editor-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+}
+
+.db-editor-status {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.db-editor-table-wrapper {
+    flex: 1;
+    overflow: auto;
+    background: var(--bg-primary);
+}
+
+.db-editor-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.db-editor-table th {
+    position: sticky;
+    top: 0;
+    background: var(--bg-secondary);
+    padding: 10px 12px;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 2px solid var(--border);
+    white-space: nowrap;
+}
+
+.db-editor-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.db-editor-table tr:hover {
+    background: var(--bg-hover);
+}
+
+.db-editor-table tr.selected {
+    background: rgba(189, 147, 249, 0.2);
+}
+
+.db-editor-table td.editable {
+    cursor: text;
+}
+
+.db-editor-table td.editing {
+    padding: 0;
+}
+
+.db-editor-table td.editing input,
+.db-editor-table td.editing select,
+.db-editor-table td.editing textarea {
+    width: 100%;
+    height: 100%;
+    padding: 8px 12px;
+    border: 2px solid var(--accent);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+}
+
+.db-editor-table td.null-value {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+.db-editor-table td.modified {
+    background: rgba(255, 184, 108, 0.2);
+}
+
+.db-editor-table td.pk {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.db-editor-table .row-num {
+    width: 40px;
+    text-align: center;
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border);
+}
+
+.db-editor-table .row-checkbox {
+    width: 30px;
+    text-align: center;
+}
+
+.db-editor-pagination {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+}
+
+#db-editor-page-info {
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
 .form-group {
     margin-bottom: 16px;
 }
