@@ -3,8 +3,27 @@ use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
 use sqlx::{Column, Row};
 use std::time::Instant;
 
-/// 构建 MySQL 连接字符串
+/// 构建 MySQL 连接字符串（不指定数据库，允许访问所有数据库）
 pub fn build_connection_string(config: &ConnectionConfig) -> String {
+    let ssl_mode = match &config.ssl_mode {
+        SslMode::Disabled => "false",
+        SslMode::Preferred => "preferred",
+        SslMode::Required | SslMode::VerifyIdentity => "true",
+    };
+
+    // 不指定数据库，允许查询任意数据库
+    format!(
+        "mysql://{}:{}@{}:{}/?ssl-mode={}",
+        urlencoding::encode(&config.username),
+        urlencoding::encode(&config.password),
+        config.host,
+        config.port,
+        ssl_mode
+    )
+}
+
+/// 构建带数据库的 MySQL 连接字符串（用于测试连接）
+pub fn build_connection_string_with_db(config: &ConnectionConfig) -> String {
     let ssl_mode = match &config.ssl_mode {
         SslMode::Disabled => "false",
         SslMode::Preferred => "preferred",
@@ -24,7 +43,7 @@ pub fn build_connection_string(config: &ConnectionConfig) -> String {
 
 /// 测试 MySQL 连接
 pub async fn test_connection(config: &ConnectionConfig) -> Result<String, String> {
-    let url = build_connection_string(config);
+    let url = build_connection_string_with_db(config);
     let pool = MySqlPoolOptions::new()
         .max_connections(1)
         .connect(&url)
@@ -121,18 +140,12 @@ pub async fn get_table_schema(
 pub async fn execute_query(
     pool: &sqlx::mysql::MySqlPool,
     sql: &str,
-    database: Option<&str>,
+    _database: Option<&str>,
 ) -> Result<QueryResult, String> {
     let start = Instant::now();
 
-    // 如果指定了数据库，先执行 USE
-    if let Some(db) = database {
-        let use_sql = format!("USE `{}`", db);
-        sqlx::query(&use_sql)
-            .execute(pool)
-            .await
-            .map_err(|e| format!("切换数据库失败: {}", e))?;
-    }
+    // 注意：MySQL 不支持在 prepared statement 中执行 USE 语句
+    // 用户需要使用完整表名：database.table 或确保连接时指定了正确的数据库
 
     let result = sqlx::query(sql).fetch_all(pool).await;
 
@@ -195,18 +208,12 @@ pub async fn execute_query(
 pub async fn execute_statement(
     pool: &sqlx::mysql::MySqlPool,
     sql: &str,
-    database: Option<&str>,
+    _database: Option<&str>,
 ) -> Result<ExecuteResult, String> {
     let start = Instant::now();
 
-    // 如果指定了数据库，先执行 USE
-    if let Some(db) = database {
-        let use_sql = format!("USE `{}`", db);
-        sqlx::query(&use_sql)
-            .execute(pool)
-            .await
-            .map_err(|e| format!("切换数据库失败: {}", e))?;
-    }
+    // 注意：MySQL 不支持在 prepared statement 中执行 USE 语句
+    // 用户需要使用完整表名：database.table 或确保连接时指定了正确的数据库
 
     let result = sqlx::query(sql).execute(pool).await;
 

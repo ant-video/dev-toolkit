@@ -3596,10 +3596,24 @@ async function loadDatabases() {
         select.innerHTML = '<option value="">选择数据库...</option>' +
             databases.map(db => `<option value="${db.name}">${db.name}</option>`).join('');
 
-        // 设置当前数据库
+        // 设置当前数据库（使用保存的数据库名，如果存在）
         if (dbState.currentDatabase) {
+            // 检查数据库是否存在
+            const exists = databases.some(db => db.name === dbState.currentDatabase);
+            if (exists) {
+                select.value = dbState.currentDatabase;
+            } else {
+                // 如果保存的数据库不存在，选择第一个
+                dbState.currentDatabase = databases[0]?.name || '';
+                select.value = dbState.currentDatabase;
+            }
+        } else if (databases.length > 0) {
+            // 默认选择第一个数据库
+            dbState.currentDatabase = databases[0].name;
             select.value = dbState.currentDatabase;
         }
+
+        console.log('当前数据库:', dbState.currentDatabase);
     } catch (e) {
         console.error('加载数据库列表失败:', e);
         select.innerHTML = '<option value="">加载失败</option>';
@@ -3630,16 +3644,23 @@ async function loadTables() {
     const tree = document.getElementById('db-tree');
     if (!tree) return;
 
+    if (!dbState.currentDatabase) {
+        tree.innerHTML = '<div class="db-result-placeholder" style="padding: 16px;">请先选择数据库</div>';
+        return;
+    }
+
     try {
+        console.log('加载表列表, 连接:', dbState.currentConnection, '数据库:', dbState.currentDatabase);
         const tables = await invoke('db_get_tables', {
             connectionId: dbState.currentConnection,
-            database: dbState.currentDatabase || '',
+            database: dbState.currentDatabase,
         });
 
+        console.log('获取到的表:', tables);
         renderTableTree(tables);
     } catch (e) {
         console.error('加载表列表失败:', e);
-        tree.innerHTML = '<div class="db-result-placeholder" style="padding: 16px;">加载失败</div>';
+        tree.innerHTML = `<div class="db-result-placeholder" style="padding: 16px; color: var(--error);">加载失败: ${e}</div>`;
     }
 }
 
