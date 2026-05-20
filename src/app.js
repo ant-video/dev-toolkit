@@ -5,7 +5,7 @@ document.addEventListener('dragover', (e) => {
 }, false);
 document.addEventListener('drop', (e) => {
     // 如果不是我们的自定义拖放区域，阻止默认行为
-    const target = e.target.closest('#image-upload-area');
+    const target = e.target.closest('#image-upload-area, #qr-upload-area');
     if (!target) {
         e.preventDefault();
     }
@@ -21,6 +21,7 @@ document.querySelectorAll('.nav-item').forEach(item => {
         if (page) page.classList.add('active');
         setTimeout(() => {
             Object.values(editors).forEach(cm => cm && cm.refresh());
+            updateHttpLayoutHeight();
         }, 10);
     });
 });
@@ -119,6 +120,32 @@ function makePlainOutputEditor(id) {
     if (!cm) return null;
     const wrapper = cm.getWrapperElement();
     wrapper.parentElement.classList.add('code-editor-readonly');
+    return cm;
+}
+
+// HTTP 编辑器：带行号 + 折叠功能
+const CM_HTTP_OPTS = {
+    ...CM_PLAIN_OPTS,
+    lineNumbers: true,
+    foldGutter: true,
+    gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+    highlightSelectionMatches: false,
+    styleActiveLine: false,
+    viewportMargin: Infinity,
+};
+
+const CM_HTTP_OUTPUT_OPTS = {
+    ...CM_HTTP_OPTS,
+    readOnly: true,
+    cursorBlinkRate: -1,
+};
+
+function makeHttpInputEditor(id) { return makeEditor(id, CM_HTTP_OPTS); }
+
+function makeHttpOutputEditor(id) {
+    const cm = makeEditor(id, CM_HTTP_OUTPUT_OPTS);
+    if (!cm) return null;
+    cm.getWrapperElement().parentElement.classList.add('code-editor-readonly');
     return cm;
 }
 
@@ -440,9 +467,22 @@ function initEditors() {
     editors.textTrimInput = makePlainInputEditor('text-trim-input-editor');
     editors.textTrimOutput = makePlainOutputEditor('text-trim-output-editor');
 
+    // Translate
+    editors.translateInput = makePlainInputEditor('translate-input-editor');
+    editors.translateOutput = makePlainOutputEditor('translate-output-editor');
+
     // Image Base64
     editors.imageBase64Output = makeLightOutputEditor('image-base64-output');
     editors.b64ToImgInput = makeLightInputEditor('b64-to-img-input-editor');
+
+    // QR Code
+    editors.qrInput = makeLightInputEditor('qr-input-editor');
+    editors.qrDecodeOutput = makeLightOutputEditor('qr-decode-output-editor');
+
+    // HTTP Client
+    editors.httpBody = makeHttpInputEditor('http-body-editor');
+    editors.httpResponseBody = makeHttpOutputEditor('http-response-body-editor');
+    editors.httpResponseRaw = makeHttpOutputEditor('http-response-raw-editor');
 
     // Screenshot uses Canvas API, not CodeMirror editors
 
@@ -749,7 +789,7 @@ function clearDiff() {
 }
 
 function escapeHtml(text) {
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ===== 正则测试 =====
@@ -1052,6 +1092,9 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+// 窗口大小改变时更新 HTTP 布局高度
+window.addEventListener('resize', debounce(updateHttpLayoutHeight, 100));
+
 // ===== Drag-to-Resize Handles =====
 function initResizeHandle(container) {
     const handle = document.createElement('div');
@@ -1284,6 +1327,117 @@ async function parseCron() {
     }
 }
 
+// ===== Cron 生成器 =====
+function updateCronBuilder() {
+    const fields = ['minute', 'hour', 'dom', 'month', 'dow'];
+    const fieldNames = { minute: '分', hour: '时', dom: '日', month: '月', dow: '周' };
+    const parts = [];
+    const descParts = [];
+
+    fields.forEach(field => {
+        const typeSelect = document.getElementById(`cron-${field}-type`);
+        const valInput = document.getElementById(`cron-${field}-val`);
+        const type = typeSelect.value;
+
+        // 显示/隐藏值输入框
+        if (valInput) {
+            valInput.style.display = type === '*' ? 'none' : 'block';
+        }
+
+        let value;
+        if (type === '*') {
+            value = '*';
+        } else if (type === 'step') {
+            const val = valInput ? valInput.value.trim() : '';
+            value = val ? `*/${val}` : '*';
+            if (val) descParts.push(`每隔${val}${fieldNames[field]}`);
+        } else {
+            const val = valInput ? valInput.value.trim() : '';
+            value = val || '*';
+            if (val && val !== '*') {
+                if (field === 'dow') {
+                    const dowNames = { '0': '周日', '1': '周一', '2': '周二', '3': '周三', '4': '周四', '5': '周五', '6': '周六', '7': '周日' };
+                    if (val.includes('-')) {
+                        descParts.push(`周${val}`);
+                    } else if (val.includes(',')) {
+                        const days = val.split(',').map(d => dowNames[d] || d).join('、');
+                        descParts.push(days);
+                    } else {
+                        descParts.push(dowNames[val] || val);
+                    }
+                } else if (field === 'month') {
+                    descParts.push(`${val}月`);
+                } else if (field === 'dom') {
+                    descParts.push(`${val}日`);
+                } else if (field === 'hour') {
+                    descParts.push(`${val}点`);
+                } else if (field === 'minute') {
+                    descParts.push(`${val}分`);
+                }
+            }
+        }
+        parts.push(value);
+    });
+
+    const expr = parts.join(' ');
+    document.getElementById('cron-generated-expr').textContent = expr;
+
+    // 生成描述
+    let desc = descParts.length > 0 ? descParts.join('的') : '每分钟';
+    document.getElementById('cron-generated-desc').innerHTML = `📝 ${desc}`;
+}
+
+function copyCronExpr() {
+    const expr = document.getElementById('cron-generated-expr').textContent;
+    navigator.clipboard.writeText(expr).then(() => {
+        alert('已复制: ' + expr);
+    });
+}
+
+function applyCronExpr() {
+    const expr = document.getElementById('cron-generated-expr').textContent;
+    document.getElementById('cron-input').value = expr;
+    parseCron();
+}
+
+function applyCronPreset(expr) {
+    document.getElementById('cron-input').value = expr;
+    parseCron();
+}
+
+function reverseCronToUI() {
+    const input = document.getElementById('cron-input').value.trim();
+    if (!input) return;
+
+    const parts = input.split(/\s+/);
+    if (parts.length !== 5) {
+        alert('请输入 5 字段格式');
+        return;
+    }
+
+    const fields = ['minute', 'hour', 'dom', 'month', 'dow'];
+
+    parts.forEach((part, i) => {
+        const field = fields[i];
+        const typeSelect = document.getElementById(`cron-${field}-type`);
+        const valInput = document.getElementById(`cron-${field}-val`);
+        if (!typeSelect) return;
+
+        if (part === '*') {
+            typeSelect.value = '*';
+            if (valInput) valInput.value = '';
+        } else if (part.startsWith('*/')) {
+            typeSelect.value = 'step';
+            if (valInput) valInput.value = part.substring(2);
+        } else {
+            typeSelect.value = 'specific';
+            if (valInput) valInput.value = part;
+        }
+    });
+
+    updateCronBuilder();
+}
+
 // ===== MIME 查询 =====
 async function lookupMime() {
     const input = document.getElementById('mime-input').value.trim();
@@ -1417,6 +1571,66 @@ async function trimLines() {
         editors.textTrimOutput.setValue(r.result);
         showStatus('text-trim-status', `✓ 原始 ${r.original_lines} 行 → 去除空行后 ${r.result_lines} 行，移除 ${r.removed} 行`, 'success');
     } catch(e) { showStatus('text-trim-status', '✗ ' + e, 'error'); }
+}
+
+// ===== 文本翻译 =====
+async function doTranslate() {
+    const text = editors.translateInput.getValue();
+    if (!text.trim()) {
+        showStatus('translate-status', '请输入要翻译的文本', 'error');
+        return;
+    }
+    const source = document.getElementById('translate-source-lang').value;
+    const target = document.getElementById('translate-target-lang').value;
+
+    showStatus('translate-status', '翻译中...', 'success');
+    try {
+        const r = await invoke('translate', { text, source, target });
+        if (r.success) {
+            editors.translateOutput.setValue(r.result);
+            showStatus('translate-status', '翻译完成', 'success');
+        } else {
+            showStatus('translate-status', r.error || '翻译失败', 'error');
+        }
+    } catch(e) {
+        showStatus('translate-status', '✗ ' + e, 'error');
+    }
+}
+
+function swapTranslateLangs() {
+    const sourceSelect = document.getElementById('translate-source-lang');
+    const targetSelect = document.getElementById('translate-target-lang');
+    const temp = sourceSelect.value;
+    sourceSelect.value = targetSelect.value;
+    targetSelect.value = temp;
+    // 同时交换文本
+    const inputText = editors.translateInput.getValue();
+    const outputText = editors.translateOutput.getValue();
+    editors.translateInput.setValue(outputText);
+    editors.translateOutput.setValue(inputText);
+}
+
+function switchTranslateMode(mode) {
+    const tabs = document.querySelectorAll('.translate-tab');
+    tabs.forEach(t => t.classList.remove('active'));
+    if (mode === 'local') {
+        tabs[0].classList.add('active');
+        document.getElementById('translate-local-section').style.display = 'block';
+        document.getElementById('translate-online-section').style.display = 'none';
+    } else {
+        tabs[1].classList.add('active');
+        document.getElementById('translate-local-section').style.display = 'none';
+        document.getElementById('translate-online-section').style.display = 'block';
+    }
+}
+
+async function openOnlineTranslator(service) {
+    try {
+        await invoke('open_translate_webview', { service });
+    } catch(e) {
+        console.error('创建翻译窗口失败:', e);
+        alert('打开翻译窗口失败: ' + e);
+    }
 }
 
 // ===== 图片 Base64 互转 =====
@@ -1567,8 +1781,29 @@ function updateShortcutHint() {
 // 触发截图（调用 Rust 后端 → 平台截图 → 打开悬浮编辑器窗口）
 async function triggerScreenshot(mode) {
     try {
+        // macOS: 先检查屏幕录制权限
+        const platform = navigator.platform || navigator.userAgent;
+        const isMac = /Mac|iPhone|iPad/.test(platform);
+        if (isMac) {
+            try {
+                const permResult = await invoke('check_screen_capture_permission');
+                if (!permResult.has_permission) {
+                    showStatus('screenshot-status',
+                        '⚠️ 缺少屏幕录制权限！请在「系统设置 > 隐私与安全性 > 屏幕录制」中授权 DevToolkit，然后重启应用。',
+                        'error');
+                    return;
+                }
+            } catch(e) {
+                // 权限检测失败，继续尝试截图
+                console.warn('权限检测失败，继续尝试截图:', e);
+            }
+        }
+
         showStatus('screenshot-status', '⏳ 正在截图，请选择区域...', 'info');
-        const result = await invoke('trigger_screenshot');
+        const result = await invoke('trigger_screenshot', {
+            mode: mode,
+            hideMainWindow: false
+        });
         showStatus('screenshot-status', '✅ 截图完成，编辑器已打开', 'success');
     } catch(e) {
         if (e.toString().includes('截图失败')) {
@@ -1578,3 +1813,1898 @@ async function triggerScreenshot(mode) {
         }
     }
 }
+
+// ===== QR 码工具 =====
+let _qrGeneratedDataUrl = '';
+let _qrUploadBase64 = '';
+
+// QR 上传区拖拽
+const qrUploadArea = document.getElementById('qr-upload-area');
+if (qrUploadArea) {
+    qrUploadArea.addEventListener('click', () => document.getElementById('qr-file-input').click());
+    qrUploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        qrUploadArea.classList.add('dragover');
+    });
+    qrUploadArea.addEventListener('dragleave', () => qrUploadArea.classList.remove('dragover'));
+    qrUploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        qrUploadArea.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleQrUploadFile(files[0]);
+    });
+    document.getElementById('qr-file-input').addEventListener('change', (e) => {
+        if (e.target.files.length > 0) handleQrUploadFile(e.target.files[0]);
+    });
+}
+
+async function qrGenerate() {
+    const input = editors.qrInput.getValue().trim();
+    if (!input) {
+        showStatus('qr-generate-status', '请输入要编码的文本', 'error');
+        return;
+    }
+    const ecLevel = document.getElementById('qr-ec-level').value;
+    try {
+        const r = await invoke('qr_generate', { input, ecLevel });
+        if (r.success) {
+            _qrGeneratedDataUrl = r.data_url;
+            document.getElementById('qr-preview-img').src = r.data_url;
+            document.getElementById('qr-generate-result').style.display = 'block';
+            showStatus('qr-generate-status', '✓ 生成成功 | ' + r.size_bytes + ' 字节', 'success');
+        } else {
+            document.getElementById('qr-generate-result').style.display = 'none';
+            showStatus('qr-generate-status', '❌ ' + r.error, 'error');
+        }
+    } catch(e) {
+        showStatus('qr-generate-status', '✗ ' + e, 'error');
+    }
+}
+
+async function downloadQrImage() {
+    if (!_qrGeneratedDataUrl) return;
+    try {
+        const base64Data = _qrGeneratedDataUrl.split(',')[1] || _qrGeneratedDataUrl;
+        const r = await invoke('save_screenshot_file', { imageBase64: base64Data });
+        if (r.success) {
+            showStatus('qr-generate-status', '✓ 已保存到 ' + r.file_path, 'success');
+        } else if (r.error !== '用户取消') {
+            showStatus('qr-generate-status', '❌ ' + r.error, 'error');
+        }
+    } catch(e) {
+        showStatus('qr-generate-status', '❌ 保存失败: ' + e, 'error');
+    }
+}
+
+async function copyQrToClipboard() {
+    if (!_qrGeneratedDataUrl) return;
+    try {
+        const base64Data = _qrGeneratedDataUrl.split(',')[1] || _qrGeneratedDataUrl;
+        await invoke('copy_screenshot_to_clipboard', { imageBase64: base64Data });
+        showStatus('qr-generate-status', '✓ 已复制图片到剪贴板', 'success');
+    } catch(e) {
+        showStatus('qr-generate-status', '❌ 复制失败: ' + e, 'error');
+    }
+}
+
+function copyQrBase64() {
+    if (!_qrGeneratedDataUrl) return;
+    copyToClipboard(_qrGeneratedDataUrl);
+    showStatus('qr-generate-status', '✓ 已复制 Base64', 'success');
+}
+
+function handleQrUploadFile(file) {
+    if (!file.type.startsWith('image/')) {
+        showStatus('qr-decode-status', '❌ 请选择图片文件', 'error');
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        _qrUploadBase64 = e.target.result;
+        document.getElementById('qr-upload-preview-img').src = e.target.result;
+        document.getElementById('qr-upload-preview').style.display = 'block';
+        document.getElementById('qr-upload-area').style.display = 'none';
+        document.getElementById('qr-decode-btn').disabled = false;
+    };
+    reader.readAsDataURL(file);
+}
+
+function clearQrUpload() {
+    _qrUploadBase64 = '';
+    document.getElementById('qr-file-input').value = '';
+    document.getElementById('qr-upload-preview').style.display = 'none';
+    document.getElementById('qr-upload-area').style.display = 'block';
+    document.getElementById('qr-decode-btn').disabled = true;
+    document.getElementById('qr-decode-result').style.display = 'none';
+    showStatus('qr-decode-status', '', '');
+}
+
+async function qrDecode() {
+    if (!_qrUploadBase64) return;
+    try {
+        const r = await invoke('qr_decode', { imageData: _qrUploadBase64 });
+        if (r.success) {
+            editors.qrDecodeOutput.setValue(r.text);
+            document.getElementById('qr-decode-result').style.display = 'block';
+            showStatus('qr-decode-status', '✓ 解码成功', 'success');
+        } else {
+            document.getElementById('qr-decode-result').style.display = 'none';
+            showStatus('qr-decode-status', '❌ ' + r.error, 'error');
+        }
+    } catch(e) {
+        showStatus('qr-decode-status', '✗ ' + e, 'error');
+    }
+}
+
+async function pasteQrFromClipboard() {
+    try {
+        const dataUrl = await invoke('read_clipboard_image');
+        _qrUploadBase64 = dataUrl;
+        document.getElementById('qr-upload-preview-img').src = dataUrl;
+        document.getElementById('qr-upload-preview').style.display = 'block';
+        document.getElementById('qr-upload-area').style.display = 'none';
+        document.getElementById('qr-decode-btn').disabled = false;
+        showStatus('qr-decode-status', '', '');
+    } catch(e) {
+        showStatus('qr-decode-status', '❌ ' + e, 'error');
+    }
+}
+
+// ===== HTTP 请求工具 =====
+let _httpHistory = [];
+let _httpFavorites = [];
+let _httpPanelMode = '';
+let _httpParamsSyncing = false;
+let _httpFolders = [];
+let _httpActiveFolder = null; // null = 显示全部，folder id = 选中某文件夹
+let _httpExpandedFolders = new Set(); // 展开的文件夹 id 集合
+let _httpFolderModalReturnTo = null; // 新建文件夹后返回的上下文: 'favorite' 或 null
+let _httpLayoutMode = 'vertical'; // 'vertical' | 'horizontal'
+let _httpFloatEl = null; // 悬浮窗 DOM
+
+// ===== 布局切换 =====
+
+function toggleHttpLayout() {
+    const container = document.getElementById('http-layout-container');
+    const btn = document.getElementById('http-layout-btn');
+    if (_httpLayoutMode === 'vertical') {
+        _httpLayoutMode = 'horizontal';
+        container.classList.add('horizontal');
+        btn.textContent = '↔ 左右';
+        btn.title = '切换为上下布局';
+    } else {
+        _httpLayoutMode = 'vertical';
+        container.classList.remove('horizontal');
+        btn.textContent = '↕ 上下';
+        btn.title = '切换为左右布局';
+    }
+    // 左右布局时，让编辑器填满容器高度
+    updateHttpLayoutHeight();
+    setTimeout(() => {
+        if (editors.httpResponseBody) editors.httpResponseBody.refresh();
+        if (editors.httpResponseRaw) editors.httpResponseRaw.refresh();
+        if (editors.httpBody) editors.httpBody.refresh();
+    }, 50);
+}
+
+function updateHttpLayoutHeight() {
+    const container = document.getElementById('http-layout-container');
+    if (!container) return;
+    const isHorizontal = container.classList.contains('horizontal');
+    const bodyEditor = document.getElementById('http-body-editor');
+    const respBodyEditor = document.getElementById('http-response-body-editor');
+    const respRawEditor = document.getElementById('http-response-raw-editor');
+
+    if (isHorizontal) {
+        // 计算可用高度：容器高度 - tabs高度 - padding
+        const containerH = container.clientHeight;
+        const reqTabs = document.getElementById('http-request-tabs');
+        const respTabs = document.getElementById('http-response-tabs');
+        const reqTabsH = reqTabs ? reqTabs.offsetHeight : 0;
+        const respTabsH = respTabs ? respTabs.offsetHeight : 0;
+        // 请求区编辑器高度
+        const reqEditorH = Math.max(100, containerH - reqTabsH - 40);
+        // 响应区编辑器高度
+        const respEditorH = Math.max(100, containerH - respTabsH - 60);
+
+        if (bodyEditor) bodyEditor.style.height = reqEditorH + 'px';
+        if (respBodyEditor) respBodyEditor.style.height = respEditorH + 'px';
+        if (respRawEditor) respRawEditor.style.height = respEditorH + 'px';
+    } else {
+        // 上下布局时恢复默认高度
+        if (bodyEditor) bodyEditor.style.height = bodyEditor.dataset.defaultH + 'px';
+        if (respBodyEditor) respBodyEditor.style.height = respBodyEditor.dataset.defaultH + 'px';
+        if (respRawEditor) respRawEditor.style.height = respRawEditor.dataset.defaultH + 'px';
+    }
+}
+
+// ===== 响应悬浮窗 =====
+
+function floatHttpResponse() {
+    if (_httpFloatEl) { closeHttpResponseFloat(); return; }
+    const section = document.getElementById('http-response-section');
+    if (section.style.display === 'none') return;
+
+    const method = document.getElementById('http-method').value;
+    const url = document.getElementById('http-url').value.trim();
+
+    const float = document.createElement('div');
+    float.className = 'http-float-window';
+    float.innerHTML =
+        '<div class="http-float-header">' +
+            '<span class="http-float-title">📡 ' + escapeHtml(method + ' ' + url) + '</span>' +
+            '<div class="http-float-controls">' +
+                '<button class="http-float-max" onclick="toggleFloatMaximize()" title="最大化">⛶</button>' +
+                '<button class="http-float-close" onclick="closeHttpResponseFloat()">✕</button>' +
+            '</div>' +
+        '</div>' +
+        '<div class="http-float-body" id="http-float-body"></div>';
+    document.body.appendChild(float);
+
+    const floatBody = float.querySelector('#http-float-body');
+    const responseArea = document.getElementById('http-response-area');
+    floatBody.appendChild(responseArea);
+
+    _httpFloatEl = float;
+    _httpFloatMaximized = false;
+    initFloatDrag(float);
+    initFloatResize(float);
+
+    setTimeout(() => {
+        if (editors.httpResponseBody) editors.httpResponseBody.refresh();
+        if (editors.httpResponseRaw) editors.httpResponseRaw.refresh();
+    }, 100);
+}
+
+let _httpFloatMaximized = false;
+let _httpFloatPrevStyle = {};
+
+function toggleFloatMaximize() {
+    if (!_httpFloatEl) return;
+    if (_httpFloatMaximized) {
+        // 还原
+        Object.assign(_httpFloatEl.style, _httpFloatPrevStyle);
+        _httpFloatMaximized = false;
+    } else {
+        // 最大化前保存位置/大小
+        _httpFloatPrevStyle = {
+            top: _httpFloatEl.style.top,
+            left: _httpFloatEl.style.left,
+            right: _httpFloatEl.style.right,
+            width: _httpFloatEl.style.width,
+            height: _httpFloatEl.style.height,
+            borderRadius: _httpFloatEl.style.borderRadius,
+        };
+        _httpFloatEl.style.top = '0';
+        _httpFloatEl.style.left = '0';
+        _httpFloatEl.style.right = '0';
+        _httpFloatEl.style.width = '100vw';
+        _httpFloatEl.style.height = '100vh';
+        _httpFloatEl.style.borderRadius = '0';
+        _httpFloatMaximized = true;
+    }
+    setTimeout(() => {
+        if (editors.httpResponseBody) editors.httpResponseBody.refresh();
+        if (editors.httpResponseRaw) editors.httpResponseRaw.refresh();
+    }, 100);
+}
+
+function closeHttpResponseFloat() {
+    if (!_httpFloatEl) return;
+    const responseArea = document.getElementById('http-response-area');
+    const layoutContainer = document.getElementById('http-layout-container');
+    layoutContainer.appendChild(responseArea);
+    _httpFloatEl.remove();
+    _httpFloatEl = null;
+    _httpFloatMaximized = false;
+
+    setTimeout(() => {
+        if (editors.httpResponseBody) editors.httpResponseBody.refresh();
+        if (editors.httpResponseRaw) editors.httpResponseRaw.refresh();
+    }, 100);
+}
+
+function initFloatDrag(float) {
+    const header = float.querySelector('.http-float-header');
+    let startX, startY, startLeft, startTop;
+    header.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.http-float-close') || e.target.closest('.http-float-max')) return;
+        if (_httpFloatMaximized) return;
+        e.preventDefault();
+        startX = e.clientX;
+        startY = e.clientY;
+        startLeft = float.offsetLeft;
+        startTop = float.offsetTop;
+        document.body.style.cursor = 'move';
+        document.body.style.userSelect = 'none';
+        const onMove = (e2) => {
+            float.style.left = (startLeft + e2.clientX - startX) + 'px';
+            float.style.top = (startTop + e2.clientY - startY) + 'px';
+            float.style.right = 'auto';
+        };
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
+function initFloatResize(float) {
+    const handle = document.createElement('div');
+    handle.className = 'http-float-resize';
+    float.appendChild(handle);
+
+    let startX, startY, startW, startH;
+    handle.addEventListener('mousedown', (e) => {
+        if (_httpFloatMaximized) return;
+        e.preventDefault();
+        e.stopPropagation();
+        startX = e.clientX;
+        startY = e.clientY;
+        startW = float.offsetWidth;
+        startH = float.offsetHeight;
+        document.body.style.cursor = 'nwse-resize';
+        document.body.style.userSelect = 'none';
+        const onMove = (e2) => {
+            const newW = Math.max(300, startW + e2.clientX - startX);
+            const newH = Math.max(200, startH + e2.clientY - startY);
+            float.style.width = newW + 'px';
+            float.style.height = newH + 'px';
+        };
+        const onUp = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            setTimeout(() => {
+                if (editors.httpResponseBody) editors.httpResponseBody.refresh();
+                if (editors.httpResponseRaw) editors.httpResponseRaw.refresh();
+            }, 50);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
+// 发送请求后同步悬浮窗标题
+function syncFloatTitle() {
+    if (!_httpFloatEl) return;
+    const method = document.getElementById('http-method').value;
+    const url = document.getElementById('http-url').value.trim();
+    const title = _httpFloatEl.querySelector('.http-float-title');
+    if (title) title.textContent = '📡 ' + method + ' ' + url;
+}
+function syncUrlToParams() {
+    if (_httpParamsSyncing) return;
+    _httpParamsSyncing = true;
+    try {
+        const url = document.getElementById('http-url').value.trim();
+        const params = {};
+        try {
+            const u = new URL(url.startsWith('http') ? url : 'http://' + url);
+            u.searchParams.forEach((v, k) => { params[k] = v; });
+        } catch(e) {}
+        setKvPairs('http-params-kv', params);
+    } finally { _httpParamsSyncing = false; }
+}
+
+function syncParamsToUrl() {
+    if (_httpParamsSyncing) return;
+    _httpParamsSyncing = true;
+    try {
+        const urlInput = document.getElementById('http-url');
+        const raw = urlInput.value.trim();
+        const params = getKvPairs('http-params-kv');
+        try {
+            const u = new URL(raw.startsWith('http') ? raw : 'http://' + raw);
+            u.search = '';
+            Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+            const result = u.toString();
+            urlInput.value = raw.startsWith('http') ? result : result.replace(/^https?:\/\//, '');
+        } catch(e) {}
+    } finally { _httpParamsSyncing = false; }
+}
+
+document.getElementById('http-url').addEventListener('input', syncUrlToParams);
+document.getElementById('http-params-kv').addEventListener('input', syncParamsToUrl);
+
+(async () => {
+    try {
+        _httpHistory = await invoke('http_load_history');
+        _httpFavorites = await invoke('http_load_favorites');
+        _httpFolders = await invoke('http_load_folders');
+    } catch(e) {}
+})();
+
+function switchHttpPanelMode(mode) {
+    _httpActiveFolder = null;
+    _httpPanelMode = mode;
+    const tabs = document.querySelectorAll('.http-panel-tab');
+    tabs.forEach(t => t.classList.toggle('active', t.textContent.includes(mode === 'history' ? '历史' : '收藏')));
+    document.getElementById('http-panel-folders').style.display = mode === 'favorites' ? 'block' : 'none';
+    document.getElementById('http-panel-actions').innerHTML = mode === 'history'
+        ? '<button class="btn btn-ghost btn-sm" onclick="clearHttpHistory()">🗑 清空历史</button>'
+        : '<button class="btn btn-ghost btn-sm" onclick="clearHttpFavorites()">🗑 清空收藏</button>';
+    renderHttpFolders();
+    renderHttpPanelList();
+}
+
+// ===== 文件夹树逻辑 =====
+
+function buildFolderTree() {
+    const map = {};
+    _httpFolders.forEach(f => { map[f.id] = { ...f, children: [] }; });
+    const roots = [];
+    Object.values(map).forEach(node => {
+        if (node.parent_id && map[node.parent_id]) {
+            map[node.parent_id].children.push(node);
+        } else {
+            roots.push(node);
+        }
+    });
+    return roots;
+}
+
+function getFolderCount(folderId) {
+    const ids = getFolderDescendants(folderId);
+    return _httpFavorites.filter(e => e.folder_id && ids.includes(e.folder_id)).length;
+}
+
+function renderFolderTree(nodes, depth) {
+    return nodes.map(node => {
+        const hasChildren = node.children.length > 0;
+        const expanded = _httpExpandedFolders.has(node.id);
+        const isActive = _httpActiveFolder === node.id;
+        const count = getFolderCount(node.id);
+        const arrow = hasChildren
+            ? '<span class="folder-tree-arrow" onclick="event.stopPropagation();toggleFolderExpand(\'' + escapeHtmlAttr(node.id) + '\')">' + (expanded ? '▼' : '▶') + '</span>'
+            : '<span class="folder-tree-arrow"></span>';
+        const childrenHtml = (hasChildren && expanded) ? '<div class="folder-tree-children">' + renderFolderTree(node.children, depth + 1) + '</div>' : '';
+        return '<div class="folder-tree-item' + (isActive ? ' active' : '') + '" onclick="setHttpActiveFolder(\'' + escapeHtmlAttr(node.id) + '\')" style="padding-left:' + (depth * 16) + 'px">'
+            + arrow
+            + '<span class="folder-tree-name">📁 ' + escapeHtml(node.name) + (count > 0 ? ' <span class="folder-tree-count">(' + count + ')</span>' : '') + '</span>'
+            + '<span class="folder-tree-actions">'
+            + '<span class="folder-tree-action" onclick="event.stopPropagation();showRenameFolderModal(\'' + escapeHtmlAttr(node.id) + '\')" title="重命名">✎</span>'
+            + '<span class="folder-tree-action" onclick="event.stopPropagation();showAddFolderModal(\'' + escapeHtmlAttr(node.id) + '\')" title="添加子文件夹">+</span>'
+            + '<span class="folder-tree-action folder-tree-action-del" onclick="event.stopPropagation();showDeleteFolderModal(\'' + escapeHtmlAttr(node.id) + '\')" title="删除">✕</span>'
+            + '</span>'
+            + '</div>' + childrenHtml;
+    }).join('');
+}
+
+function renderHttpFolders() {
+    const container = document.getElementById('http-panel-folders');
+    if (_httpPanelMode !== 'favorites') { container.style.display = 'none'; return; }
+    container.style.display = 'block';
+    const allActive = _httpActiveFolder === null ? 'active' : '';
+    let html = '<div class="folder-tree-header">'
+        + '<button class="http-folder-btn ' + allActive + '" onclick="setHttpActiveFolder(null)">全部</button>'
+        + '<button class="http-folder-btn" onclick="showAddFolderModal(null)">+ 新建</button>'
+        + '</div>';
+    html += renderFolderTree(buildFolderTree(), 0);
+    container.innerHTML = html;
+}
+
+function toggleFolderExpand(id) {
+    if (_httpExpandedFolders.has(id)) _httpExpandedFolders.delete(id);
+    else _httpExpandedFolders.add(id);
+    renderHttpFolders();
+}
+
+function setHttpActiveFolder(id) {
+    _httpActiveFolder = id;
+    renderHttpFolders();
+    renderHttpPanelList();
+}
+
+function getFolderDescendants(folderId) {
+    const ids = [folderId];
+    const queue = [folderId];
+    while (queue.length) {
+        const pid = queue.shift();
+        _httpFolders.filter(f => f.parent_id === pid).forEach(f => {
+            ids.push(f.id);
+            queue.push(f.id);
+        });
+    }
+    return ids;
+}
+
+// 填充文件夹下拉选择（用于模态框）
+function renderFolderSelect(selectId, selectedId, includeEmpty) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    let html = includeEmpty ? '<option value="">无（根级）</option>' : '<option value="">不归属任何文件夹</option>';
+    function renderOptions(nodes, depth) {
+        nodes.forEach(node => {
+            const prefix = '\u00A0\u00A0'.repeat(depth) + (depth > 0 ? '└ ' : '');
+            html += '<option value="' + escapeHtmlAttr(node.id) + '"' + (selectedId === node.id ? ' selected' : '') + '>' + prefix + escapeHtml(node.name) + '</option>';
+            if (node.children.length) renderOptions(node.children, depth + 1);
+        });
+    }
+    renderOptions(buildFolderTree(), 0);
+    sel.innerHTML = html;
+}
+
+// ===== 收藏模态框 =====
+
+function showAddFavoriteModal() {
+    const method = document.getElementById('http-method').value;
+    const url = document.getElementById('http-url').value.trim();
+    if (!url) { alert('请先输入 URL'); return; }
+    document.getElementById('http-favorite-name').value = method + ' ' + url;
+    renderFolderSelect('http-favorite-folder', null, false);
+    document.getElementById('http-favorite-modal').style.display = 'flex';
+}
+
+function closeFavoriteModal() {
+    document.getElementById('http-favorite-modal').style.display = 'none';
+}
+
+function confirmAddFavorite() {
+    const name = document.getElementById('http-favorite-name').value.trim();
+    const folderId = document.getElementById('http-favorite-folder').value || null;
+    closeFavoriteModal();
+    if (!name) return;
+    addHttpFavorite(name, folderId);
+}
+
+// ===== 文件夹模态框 =====
+
+function showAddFolderModal(defaultParentId, returnTo) {
+    _httpFolderModalReturnTo = returnTo || null;
+    document.getElementById('http-folder-name').value = '';
+    renderFolderSelect('http-folder-parent', defaultParentId || null, true);
+    document.getElementById('http-folder-modal').style.display = 'flex';
+}
+
+function closeFolderModal() {
+    document.getElementById('http-folder-modal').style.display = 'none';
+    _httpFolderModalReturnTo = null;
+}
+
+async function confirmAddFolder() {
+    const name = document.getElementById('http-folder-name').value.trim();
+    const parentId = document.getElementById('http-folder-parent').value || null;
+    if (!name) return;
+    const folder = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+        name,
+        parent_id: parentId,
+        created_at: Math.floor(Date.now() / 1000)
+    };
+    _httpFolders.push(folder);
+    if (parentId) _httpExpandedFolders.add(parentId);
+    try { await invoke('http_save_folders', { folders: _httpFolders }); } catch(e) {}
+    closeFolderModal();
+    renderHttpFolders();
+    // 如果是从收藏模态框新建文件夹，刷新收藏模态框的下拉
+    if (_httpFolderModalReturnTo === 'favorite') {
+        renderFolderSelect('http-favorite-folder', folder.id, false);
+        document.getElementById('http-favorite-modal').style.display = 'flex';
+    }
+}
+
+// ===== 重命名文件夹 =====
+
+let _httpRenameFolderId = null;
+
+function showRenameFolderModal(id) {
+    const folder = _httpFolders.find(f => f.id === id);
+    if (!folder) return;
+    _httpRenameFolderId = id;
+    document.getElementById('http-rename-name').value = folder.name;
+    document.getElementById('http-rename-modal').style.display = 'flex';
+}
+
+function closeRenameFolderModal() {
+    document.getElementById('http-rename-modal').style.display = 'none';
+    _httpRenameFolderId = null;
+}
+
+async function confirmRenameFolder() {
+    const name = document.getElementById('http-rename-name').value.trim();
+    if (!name || !_httpRenameFolderId) return;
+    const folder = _httpFolders.find(f => f.id === _httpRenameFolderId);
+    if (folder) folder.name = name;
+    try { await invoke('http_save_folders', { folders: _httpFolders }); } catch(e) {}
+    closeRenameFolderModal();
+    renderHttpFolders();
+    renderHttpPanelList();
+}
+
+// ===== 删除文件夹 =====
+
+let _httpDeleteFolderId = null;
+
+function showDeleteFolderModal(id) {
+    const folder = _httpFolders.find(f => f.id === id);
+    if (!folder) return;
+    const count = getFolderCount(id);
+    _httpDeleteFolderId = id;
+    document.getElementById('http-delete-msg').textContent = '确定删除文件夹「' + folder.name + '」？' + (count > 0 ? '该文件夹下有 ' + count + ' 个收藏，将改为不归属任何文件夹。' : '');
+    document.getElementById('http-delete-modal').style.display = 'flex';
+}
+
+function closeDeleteFolderModal() {
+    document.getElementById('http-delete-modal').style.display = 'none';
+    _httpDeleteFolderId = null;
+}
+
+async function confirmDeleteFolder() {
+    const id = _httpDeleteFolderId;
+    if (!id) return;
+    // 子文件夹的 parent_id 改为被删文件夹的 parent_id
+    const folder = _httpFolders.find(f => f.id === id);
+    const parentId = folder ? folder.parent_id : null;
+    _httpFolders.forEach(f => { if (f.parent_id === id) f.parent_id = parentId; });
+    // 删除文件夹
+    _httpFolders = _httpFolders.filter(f => f.id !== id);
+    // 该文件夹下的收藏改为不归属任何文件夹
+    _httpFavorites.forEach(e => { if (e.folder_id === id) e.folder_id = null; });
+    if (_httpActiveFolder === id) _httpActiveFolder = null;
+    _httpExpandedFolders.delete(id);
+    try {
+        await invoke('http_save_folders', { folders: _httpFolders });
+        await invoke('http_save_favorites', { entries: _httpFavorites });
+    } catch(e) {}
+    closeDeleteFolderModal();
+    renderHttpFolders();
+    renderHttpPanelList();
+}
+
+// ===== 重命名收藏 =====
+
+let _httpRenameFavId = null;
+
+function showRenameFavModal(id) {
+    const entry = _httpFavorites.find(e => e.id === id);
+    if (!entry) return;
+    _httpRenameFavId = id;
+    document.getElementById('http-rename-fav-name').value = entry.name || entry.request.url;
+    document.getElementById('http-rename-fav-modal').style.display = 'flex';
+}
+
+function closeRenameFavModal() {
+    document.getElementById('http-rename-fav-modal').style.display = 'none';
+    _httpRenameFavId = null;
+}
+
+async function confirmRenameFav() {
+    const name = document.getElementById('http-rename-fav-name').value.trim();
+    if (!name || !_httpRenameFavId) return;
+    const entry = _httpFavorites.find(e => e.id === _httpRenameFavId);
+    if (entry) entry.name = name;
+    try { await invoke('http_save_favorites', { entries: _httpFavorites }); } catch(e) {}
+    closeRenameFavModal();
+    renderHttpPanelList();
+}
+
+async function addHttpFavorite(name, folderId) {
+    const method = document.getElementById('http-method').value;
+    const url = document.getElementById('http-url').value.trim();
+    const headers = getHeaderPairs();
+    const bodyType = document.getElementById('http-body-type').value;
+    let body = '';
+    if (bodyType === 'form-data') {
+        body = JSON.stringify(getKvPairs('http-formdata-kv'));
+    } else if (bodyType !== 'none') {
+        body = editors.httpBody ? editors.httpBody.getValue() : '';
+    }
+    const entry = {
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+        request: { method, url, headers, body_type: bodyType, body, timeout: 30 },
+        response: null,
+        created_at: Math.floor(Date.now() / 1000),
+        name: name || (method + ' ' + url),
+        folder_id: folderId || null
+    };
+    _httpFavorites.unshift(entry);
+    try {
+        await invoke('http_save_favorites', { entries: _httpFavorites });
+        if (_httpPanelMode === 'favorites') {
+            renderHttpFolders();
+            renderHttpPanelList();
+        }
+    } catch(e) { alert('收藏失败: ' + e); }
+}
+
+function updateHttpMethodColor() {
+    const sel = document.getElementById('http-method');
+    const colors = { GET:'#00d68f', POST:'#ff9f43', PUT:'#448aff', DELETE:'#ff6b6b', PATCH:'#a855f7', HEAD:'#6c5ce7', OPTIONS:'#8b8fa3' };
+    sel.style.color = colors[sel.value] || '#e4e6f0';
+}
+
+function switchHttpTab(group, tabName) {
+    const isReq = group === 'request';
+    const tabPrefix = isReq ? 'http-request-tabs' : 'http-response-tabs';
+    const contentPrefix = isReq ? 'http-tab-' : 'http-response-tab-';
+    const tabs = document.getElementById(tabPrefix);
+    if (tabs) {
+        tabs.querySelectorAll('.http-tab').forEach(t => {
+            const tName = t.textContent.trim().toLowerCase();
+            t.classList.toggle('active', tName === tabName);
+        });
+    }
+    document.querySelectorAll('[id^="' + contentPrefix + '"]').forEach(el => {
+        if (el.closest('#page-http-client') || el.closest('.http-float-window')) {
+            el.classList.toggle('active', el.id === contentPrefix + tabName);
+        }
+    });
+    // refresh editors when switching to body/raw tabs
+    setTimeout(() => {
+        if (isReq && tabName === 'body' && editors.httpBody) editors.httpBody.refresh();
+        if (!isReq && tabName === 'body' && editors.httpResponseBody) editors.httpResponseBody.refresh();
+        if (!isReq && tabName === 'raw' && editors.httpResponseRaw) editors.httpResponseRaw.refresh();
+    }, 10);
+}
+
+function addKvRow(containerId, key = '', value = '') {
+    const container = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'kv-row';
+    row.innerHTML = '<input type="text" class="kv-key" placeholder="Key" autocomplete="off" value="' + escapeHtmlAttr(key) + '"><input type="text" class="kv-value" placeholder="Value" autocomplete="off" value="' + escapeHtmlAttr(value) + '"><button class="kv-remove" onclick="removeKvRow(this)">✕</button>';
+    container.appendChild(row);
+    if (containerId === 'http-params-kv' && key) syncParamsToUrl();
+}
+
+function removeKvRow(btn) {
+    const row = btn.closest('.kv-row');
+    const container = row.parentElement;
+    if (container.querySelectorAll('.kv-row').length > 1) {
+        row.remove();
+    } else {
+        row.querySelectorAll('input').forEach(i => i.value = '');
+    }
+    if (container.id === 'http-params-kv') syncParamsToUrl();
+}
+
+function getKvPairs(containerId) {
+    const pairs = {};
+    document.getElementById(containerId).querySelectorAll('.kv-row').forEach(row => {
+        const key = row.querySelector('.kv-key').value.trim();
+        const val = row.querySelector('.kv-value').value;
+        if (key) pairs[key] = val;
+    });
+    return pairs;
+}
+
+function setKvPairs(containerId, pairs) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    const entries = Object.entries(pairs);
+    if (entries.length === 0) {
+        addKvRow(containerId);
+    } else {
+        entries.forEach(([k, v]) => addKvRow(containerId, k, v));
+    }
+}
+
+function escapeHtmlAttr(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toggleHttpBodyEditor() {
+    const type = document.getElementById('http-body-type').value;
+    document.getElementById('http-body-editor-wrap').style.display = (type === 'json' || type === 'raw') ? 'block' : 'none';
+    document.getElementById('http-formdata-wrap').style.display = type === 'form-data' ? 'block' : 'none';
+    // 自动更新 Headers 中的 Content-Type
+    const ctMap = { 'json': 'application/json', 'form-data': 'multipart/form-data', 'form': 'application/x-www-form-urlencoded', 'raw': 'text/plain' };
+    const newCt = ctMap[type];
+    if (newCt) {
+        updateKvHeader('http-headers-kv', 'Content-Type', newCt);
+    }
+    requestAnimationFrame(() => { requestAnimationFrame(() => { if (editors.httpBody) editors.httpBody.refresh(); }); });
+}
+
+function formatHttpBodyJson(action) {
+    if (!editors.httpBody) return;
+    const raw = editors.httpBody.getValue();
+    if (!raw.trim()) return;
+    try {
+        const parsed = JSON.parse(raw);
+        const formatted = action === 'beautify' ? JSON.stringify(parsed, null, 2) : JSON.stringify(parsed);
+        editors.httpBody.setValue(formatted);
+    } catch(e) {
+        alert('JSON 格式错误: ' + e.message);
+    }
+}
+
+// ===== cURL 导入导出 =====
+function showCurlImportModal() {
+    document.getElementById('http-curl-import-modal').style.display = 'flex';
+    document.getElementById('http-curl-input').value = '';
+    document.getElementById('http-curl-input').focus();
+}
+
+function closeCurlImportModal() {
+    document.getElementById('http-curl-import-modal').style.display = 'none';
+}
+
+function importCurlCommand() {
+    const input = document.getElementById('http-curl-input').value.trim();
+    if (!input) {
+        alert('请输入 cURL 命令');
+        return;
+    }
+    try {
+        const parsed = parseCurlCommand(input);
+        // 设置 method
+        document.getElementById('http-method').value = parsed.method || 'GET';
+        updateHttpMethodColor();
+        // 设置 URL
+        document.getElementById('http-url').value = parsed.url || '';
+        // 设置 headers
+        setHeaderPairs(parsed.headers || {});
+        // 设置 body type 和 body
+        if (parsed.data) {
+            // 判断是否为 JSON 类型（content-type 包含 application/json）
+            const isJson = parsed.contentType && parsed.contentType.toLowerCase().includes('application/json');
+            document.getElementById('http-body-type').value = isJson ? 'json' : 'raw';
+            toggleHttpBodyEditor();
+            if (editors.httpBody) {
+                editors.httpBody.setValue(parsed.data);
+                setTimeout(() => editors.httpBody.refresh(), 50);
+            }
+        } else {
+            document.getElementById('http-body-type').value = 'none';
+            toggleHttpBodyEditor();
+            if (editors.httpBody) editors.httpBody.setValue('');
+        }
+        // 重新设置 headers（覆盖 toggleHttpBodyEditor 自动设置的 Content-Type）
+        setHeaderPairs(parsed.headers || {});
+        // 解析 URL params
+        try {
+            const u = new URL(parsed.url || '');
+            const params = {};
+            u.searchParams.forEach((v, k) => { params[k] = v; });
+            setKvPairs('http-params-kv', params);
+        } catch(e) {
+            setKvPairs('http-params-kv', {});
+        }
+        closeCurlImportModal();
+    } catch(e) {
+        alert('解析 cURL 命令失败: ' + e.message);
+    }
+}
+
+function parseCurlCommand(curl) {
+    const result = { method: 'GET', url: '', headers: {}, data: '', contentType: '' };
+    // 移除换行续行符，合并为单行
+    curl = curl.replace(/\\\s*\n/g, ' ').replace(/\r?\n/g, ' ');
+
+    // 提取 URL：在整个命令中查找 https?:// 开头的 URL
+    let urlMatch = curl.match(/['"](https?:\/\/[^'"]+)['"]/);
+    if (!urlMatch) urlMatch = curl.match(/(https?:\/\/[^\s'"]+)/);
+    if (urlMatch) result.url = urlMatch[1];
+
+    // 提取 method
+    const methodMatch = curl.match(/-X\s+['"]?(\w+)['"]?/i) || curl.match(/--request\s+['"]?(\w+)['"]?/i);
+    if (methodMatch) result.method = methodMatch[1].toUpperCase();
+
+    // 提取 headers：支持单引号和双引号
+    const headerRegex = /-H\s+'([^']+)'/g;
+    let headerMatch;
+    while ((headerMatch = headerRegex.exec(curl)) !== null) {
+        const colonIdx = headerMatch[1].indexOf(':');
+        if (colonIdx > 0) {
+            const key = headerMatch[1].substring(0, colonIdx).trim();
+            const value = headerMatch[1].substring(colonIdx + 1).trim();
+            if (key) {
+                result.headers[key] = value;
+                if (key.toLowerCase() === 'content-type') result.contentType = value;
+            }
+        }
+    }
+    // 也检查双引号形式
+    const headerRegex2 = /-H\s+"([^"]+)"/g;
+    while ((headerMatch = headerRegex2.exec(curl)) !== null) {
+        const colonIdx = headerMatch[1].indexOf(':');
+        if (colonIdx > 0) {
+            const key = headerMatch[1].substring(0, colonIdx).trim();
+            const value = headerMatch[1].substring(colonIdx + 1).trim();
+            if (key) {
+                result.headers[key] = value;
+                if (key.toLowerCase() === 'content-type') result.contentType = value;
+            }
+        }
+    }
+
+    // 提取 data：支持单引号和双引号，贪婪匹配到引号结束
+    // --data-raw '...'
+    let dataMatch = curl.match(/--data-raw\s+'([\s\S]*?)'(?:\s|$)/);
+    if (!dataMatch) dataMatch = curl.match(/--data-raw\s+"([\s\S]*?)"(?:\s|$)/);
+    // --data '...'
+    if (!dataMatch) dataMatch = curl.match(/--data\s+'([\s\S]*?)'(?:\s|$)/);
+    if (!dataMatch) dataMatch = curl.match(/--data\s+"([\s\S]*?)"(?:\s|$)/);
+    // -d '...'
+    if (!dataMatch) dataMatch = curl.match(/-d\s+'([\s\S]*?)'(?:\s|$)/);
+    if (!dataMatch) dataMatch = curl.match(/-d\s+"([\s\S]*?)"(?:\s|$)/);
+
+    if (dataMatch) {
+        result.data = dataMatch[1].replace(/\\'/g, "'").replace(/\\"/g, '"');
+    }
+
+    // 如果没有 explicit method 但有 data，默认 POST
+    if (!methodMatch && result.data) result.method = 'POST';
+    return result;
+}
+
+function exportAsCurl() {
+    const method = document.getElementById('http-method').value;
+    const url = document.getElementById('http-url').value.trim();
+    if (!url) {
+        alert('请先输入请求 URL');
+        return;
+    }
+    const headers = getKvPairs('http-headers-kv');
+    const bodyType = document.getElementById('http-body-type').value;
+    const body = editors.httpBody ? editors.httpBody.getValue() : '';
+
+    let curl = `curl -X ${method} '${url}'`;
+    // 添加 headers
+    Object.entries(headers).forEach(([key, value]) => {
+        if (key && value) {
+            curl += ` \\\n  -H '${key}: ${value}'`;
+        }
+    });
+    // 添加 body
+    if (bodyType !== 'none' && body) {
+        const escapedBody = body.replace(/'/g, "'\\''");
+        curl += ` \\\n  -d '${escapedBody}'`;
+    }
+
+    document.getElementById('http-curl-output').value = curl;
+    document.getElementById('http-curl-export-modal').style.display = 'flex';
+}
+
+function closeCurlExportModal() {
+    document.getElementById('http-curl-export-modal').style.display = 'none';
+}
+
+function copyCurlOutput() {
+    const curl = document.getElementById('http-curl-output').value;
+    navigator.clipboard.writeText(curl).then(() => {
+        alert('已复制到剪贴板');
+    }).catch(() => {
+        alert('复制失败');
+    });
+}
+
+// ===== HTTP 响应搜索（独立于 CodeMirror 搜索，专注大文本性能） =====
+let _httpSearchState = { matches: [], matchIndex: -1, caseSensitive: false };
+
+function openHttpResponseSearch() {
+    const bar = document.getElementById('http-response-search-bar');
+    bar.classList.add('active');
+    const input = document.getElementById('http-response-search-input');
+    input.focus();
+    input.select();
+}
+
+function closeHttpResponseSearch() {
+    const bar = document.getElementById('http-response-search-bar');
+    bar.classList.remove('active');
+    clearHttpSearchHighlights();
+    _httpSearchState.matches = [];
+    _httpSearchState.matchIndex = -1;
+    document.getElementById('http-response-search-info').textContent = '';
+    document.getElementById('http-response-search-input').value = '';
+}
+
+function clearHttpSearchHighlights() {
+    if (editors.httpResponseBody) {
+        editors.httpResponseBody.getAllMarks().forEach(m => m.clear());
+    }
+}
+
+function doHttpResponseSearch() {
+    const cm = editors.httpResponseBody;
+    if (!cm) return;
+    clearHttpSearchHighlights();
+    const input = document.getElementById('http-response-search-input');
+    const info = document.getElementById('http-response-search-info');
+    const query = input.value;
+    if (!query) {
+        _httpSearchState.matches = [];
+        _httpSearchState.matchIndex = -1;
+        info.textContent = '';
+        return;
+    }
+    const caseOpt = document.querySelector('#http-response-search-bar [data-option="case"]');
+    _httpSearchState.caseSensitive = caseOpt && caseOpt.classList.contains('active');
+    _httpSearchState.matches = [];
+    try {
+        const flags = _httpSearchState.caseSensitive ? 'g' : 'gi';
+        const regex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+        const content = cm.getValue();
+        let match;
+        while ((match = regex.exec(content)) !== null) {
+            _httpSearchState.matches.push({ index: match.index, length: match[0].length });
+        }
+    } catch(e) { info.textContent = '⚠'; return; }
+    if (_httpSearchState.matches.length === 0) {
+        _httpSearchState.matchIndex = -1;
+        info.textContent = '0/0';
+    } else {
+        _httpSearchState.matchIndex = 0;
+        jumpToHttpSearchMatch(0);
+        updateHttpSearchInfo();
+    }
+}
+
+function jumpToHttpSearchMatch(idx) {
+    const cm = editors.httpResponseBody;
+    if (!cm || idx < 0 || idx >= _httpSearchState.matches.length) return;
+    const m = _httpSearchState.matches[idx];
+    cm.scrollIntoView({ line: 0, ch: 0 }, 50);
+    const pos = cm.posFromIndex(m.index);
+    cm.setSelection(pos, cm.posFromIndex(m.index + m.length));
+    cm.scrollIntoView(pos, 50);
+    clearHttpSearchHighlights();
+    const end = cm.posFromIndex(m.index + m.length);
+    cm.markText(pos, end, { className: 'cm-search-highlight' });
+}
+
+function updateHttpSearchInfo() {
+    const info = document.getElementById('http-response-search-info');
+    if (_httpSearchState.matches.length === 0) {
+        info.textContent = '0/0';
+    } else {
+        info.textContent = (_httpSearchState.matchIndex + 1) + '/' + _httpSearchState.matches.length;
+    }
+}
+
+function httpResponseSearchNext() {
+    if (_httpSearchState.matches.length === 0) return;
+    _httpSearchState.matchIndex = (_httpSearchState.matchIndex + 1) % _httpSearchState.matches.length;
+    jumpToHttpSearchMatch(_httpSearchState.matchIndex);
+    updateHttpSearchInfo();
+}
+
+function httpResponseSearchPrev() {
+    if (_httpSearchState.matches.length === 0) return;
+    _httpSearchState.matchIndex = (_httpSearchState.matchIndex - 1 + _httpSearchState.matches.length) % _httpSearchState.matches.length;
+    jumpToHttpSearchMatch(_httpSearchState.matchIndex);
+    updateHttpSearchInfo();
+}
+
+// 绑定搜索框事件
+document.getElementById('http-response-search-input').addEventListener('input', debounce(doHttpResponseSearch, 200));
+document.getElementById('http-response-search-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.shiftKey ? httpResponseSearchPrev() : httpResponseSearchNext(); }
+    if (e.key === 'Escape') { closeHttpResponseSearch(); if (editors.httpResponseBody) editors.httpResponseBody.focus(); }
+});
+
+function updateKvHeader(containerId, key, value) {
+    const container = document.getElementById(containerId);
+    let found = false;
+    container.querySelectorAll('.kv-row').forEach(row => {
+        if (row.querySelector('.kv-key').value.trim().toLowerCase() === key.toLowerCase()) {
+            row.querySelector('.kv-value').value = value;
+            found = true;
+        }
+    });
+    if (!found) {
+        addHeaderRow(key, value);
+    }
+}
+
+// ===== Headers 专用 KV 编辑器（带 checkbox + datalist） =====
+function addHeaderRow(key = '', value = '', checked = true) {
+    const container = document.getElementById('http-headers-kv');
+    const row = document.createElement('div');
+    row.className = 'kv-row' + (checked ? '' : ' disabled');
+    row.innerHTML = '<input type="checkbox" class="kv-check"' + (checked ? ' checked' : '') + '><input type="text" class="kv-key" placeholder="Key" autocomplete="off" list="http-header-suggestions" value="' + escapeHtmlAttr(key) + '"><input type="text" class="kv-value" placeholder="Value" autocomplete="off" value="' + escapeHtmlAttr(value) + '"><button class="kv-remove" onclick="removeKvRow(this)">✕</button>';
+    container.appendChild(row);
+    const cb = row.querySelector('.kv-check');
+    cb.addEventListener('change', function() {
+        row.classList.toggle('disabled', !this.checked);
+    });
+}
+
+function getHeaderPairs() {
+    const pairs = {};
+    document.getElementById('http-headers-kv').querySelectorAll('.kv-row').forEach(row => {
+        const cb = row.querySelector('.kv-check');
+        if (cb && !cb.checked) return;
+        const key = row.querySelector('.kv-key').value.trim();
+        const val = row.querySelector('.kv-value').value;
+        if (key) pairs[key] = val;
+    });
+    return pairs;
+}
+
+function setHeaderPairs(pairs) {
+    const container = document.getElementById('http-headers-kv');
+    container.innerHTML = '';
+    const entries = Object.entries(pairs);
+    if (entries.length === 0) {
+        addHeaderRow();
+    } else {
+        entries.forEach(([k, v]) => addHeaderRow(k, v));
+    }
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+async function sendHttpRequest() {
+    const method = document.getElementById('http-method').value;
+    const url = document.getElementById('http-url').value.trim();
+    if (!url) { alert('请输入 URL'); return; }
+
+    const headers = getHeaderPairs();
+    const bodyType = document.getElementById('http-body-type').value;
+    let body = '';
+    if (bodyType === 'form-data') {
+        body = JSON.stringify(getKvPairs('http-formdata-kv'));
+    } else if (bodyType !== 'none') {
+        body = editors.httpBody ? editors.httpBody.getValue() : '';
+    }
+    const params = getKvPairs('http-params-kv');
+
+    let finalUrl = url;
+    if (Object.keys(params).length > 0) {
+        try {
+            const u = new URL(url.startsWith('http') ? url : 'http://' + url);
+            Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+            finalUrl = u.toString();
+        } catch(e) {}
+    }
+
+    const btn = document.getElementById('http-send-btn');
+    btn.disabled = true;
+    btn.textContent = '发送中...';
+
+    try {
+        const r = await invoke('http_request', {
+            req: { method, url: finalUrl, headers, body_type: bodyType, body, timeout: 30 }
+        });
+
+        document.getElementById('http-response-section').style.display = 'block';
+        document.getElementById('http-response-placeholder').style.display = 'none';
+        syncFloatTitle();
+
+        const statusEl = document.getElementById('http-response-status');
+        if (r.success) {
+            const statusColor = r.status < 300 ? 'var(--success)' : r.status < 400 ? 'var(--warning)' : 'var(--error)';
+            let statusHtml = '<span style="color:' + statusColor + ';font-weight:600">' + r.status + ' ' + r.status_text + '</span> <span style="color:var(--text-secondary)">| ' + r.time_ms + 'ms | ' + formatBytes(r.size_bytes) + '</span>';
+            if (r.redirects && r.redirects.length > 0) {
+                statusHtml += '<div class="http-redirect-chain">' + r.redirects.map(rd =>
+                    '<span class="http-redirect-item"><span class="http-redirect-status">' + rd.status + ' ' + escapeHtml(rd.status_text) + '</span> → <span class="http-redirect-url">' + escapeHtml(rd.url) + '</span></span>'
+                ).join('') + '</div>';
+            }
+            statusEl.innerHTML = statusHtml;
+        } else {
+            statusEl.innerHTML = '<span style="color:var(--error);font-weight:600">❌ ' + (r.error || '请求失败') + '</span> <span style="color:var(--text-secondary)">| ' + r.time_ms + 'ms</span>';
+        }
+
+        if (r.success && r.body) {
+            let bodyText = r.body;
+            try {
+                const parsed = JSON.parse(r.body);
+                bodyText = JSON.stringify(parsed, null, 2);
+            } catch(e) {}
+            if (editors.httpResponseBody) {
+                editors.httpResponseBody.setValue(bodyText);
+                try { editors.httpResponseBody.setOption('mode', 'javascript'); } catch(e) {}
+            }
+            if (editors.httpResponseRaw) editors.httpResponseRaw.setValue(r.body);
+        } else {
+            if (editors.httpResponseBody) editors.httpResponseBody.setValue(r.body || '');
+            if (editors.httpResponseRaw) editors.httpResponseRaw.setValue(r.body || '');
+        }
+
+        const headersGrid = document.getElementById('http-response-headers-grid');
+        if (r.success && Object.keys(r.headers).length > 0) {
+            headersGrid.innerHTML = Object.entries(r.headers).map(([k, v]) =>
+                '<div class="http-header-row"><span class="http-header-key">' + escapeHtml(k) + '</span><span class="http-header-val">' + escapeHtml(v) + '</span><span class="http-header-copy" onclick="copyToClipboard(\'' + escapeHtmlAttr(v) + '\')" title="复制">📋</span></div>'
+            ).join('');
+        } else {
+            headersGrid.innerHTML = '<div style="color:var(--text-secondary);padding:12px">无响应头</div>';
+        }
+
+        const entry = {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+            request: { method, url: finalUrl, headers, body_type: bodyType, body, timeout: 30 },
+            response: r.success ? r : null,
+            created_at: Math.floor(Date.now() / 1000),
+            name: null,
+            folder_id: null
+        };
+        _httpHistory.unshift(entry);
+        if (_httpHistory.length > 100) _httpHistory = _httpHistory.slice(0, 100);
+        try { await invoke('http_save_history', { entries: _httpHistory }); } catch(e) {}
+
+    } catch(e) {
+        document.getElementById('http-response-section').style.display = 'block';
+        document.getElementById('http-response-placeholder').style.display = 'none';
+        syncFloatTitle();
+        document.getElementById('http-response-status').innerHTML = '<span style="color:var(--error);font-weight:600">❌ ' + e + '</span>';
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '发送';
+    }
+}
+
+function toggleHttpPanel(mode) {
+    const panel = document.getElementById('http-panel');
+    if (panel.style.display !== 'none' && _httpPanelMode === mode) {
+        closeHttpPanel(); return;
+    }
+    switchHttpPanelMode(mode);
+    panel.style.display = 'block';
+}
+
+function closeHttpPanel() {
+    document.getElementById('http-panel').style.display = 'none';
+    _httpPanelMode = '';
+}
+
+function renderHttpPanelList() {
+    const list = document.getElementById('http-panel-list');
+    let entries = _httpPanelMode === 'history' ? _httpHistory : _httpFavorites;
+    if (_httpPanelMode === 'favorites' && _httpActiveFolder) {
+        const ids = getFolderDescendants(_httpActiveFolder);
+        entries = entries.filter(e => e.folder_id && ids.includes(e.folder_id));
+    }
+    if (entries.length === 0) {
+        list.innerHTML = '<div style="color:var(--text-secondary);padding:20px;text-align:center">暂无数据</div>';
+        return;
+    }
+    const methodColors = { GET:'#00d68f', POST:'#ff9f43', PUT:'#448aff', DELETE:'#ff6b6b', PATCH:'#a855f7', HEAD:'#6c5ce7', OPTIONS:'#8b8fa3' };
+    const arr = _httpPanelMode === 'history' ? '_httpHistory' : '_httpFavorites';
+    list.innerHTML = entries.map((entry, i) => {
+        const color = methodColors[entry.request.method] || '#e4e6f0';
+        const time = entry.created_at ? new Date(entry.created_at * 1000).toLocaleString('zh-CN') : '';
+        const name = entry.name || entry.request.url;
+        const folderObj = entry.folder_id ? _httpFolders.find(f => f.id === entry.folder_id) : null;
+        const folderTag = folderObj ? '<span class="http-folder-tag">' + escapeHtml(folderObj.name) + '</span>' : '';
+        const renameBtn = _httpPanelMode === 'favorites' ? '<span class="http-fav-rename" onclick="event.stopPropagation();showRenameFavModal(\'' + escapeHtmlAttr(entry.id) + '\')" title="重命名">✎</span>' : '';
+        return '<div class="http-history-item" onclick="loadHttpEntry(' + arr + '[' + i + '])">' +
+            '<span class="http-history-method" style="color:' + color + '">' + entry.request.method + '</span>' +
+            '<span class="http-history-url">' + escapeHtml(name.length > 60 ? name.slice(0, 60) + '...' : name) + '</span>' +
+            folderTag +
+            '<span class="http-history-time">' + time + '</span>' +
+            renameBtn +
+            '<button class="kv-remove" onclick="event.stopPropagation();removeHttpEntry(' + i + ')">✕</button>' +
+            '</div>';
+    }).join('');
+}
+
+function loadHttpEntry(entry) {
+    _httpParamsSyncing = true;
+    try {
+        document.getElementById('http-method').value = entry.request.method;
+        updateHttpMethodColor();
+        document.getElementById('http-url').value = entry.request.url;
+        setHeaderPairs(entry.request.headers || {});
+        document.getElementById('http-body-type').value = entry.request.body_type || 'none';
+        toggleHttpBodyEditor();
+        const bt = entry.request.body_type || 'none';
+        if (bt === 'form-data') {
+            try {
+                const pairs = JSON.parse(entry.request.body || '{}');
+                setKvPairs('http-formdata-kv', pairs);
+            } catch(e) {
+                setKvPairs('http-formdata-kv', {});
+            }
+            if (editors.httpBody) editors.httpBody.setValue('');
+        } else {
+            if (editors.httpBody) editors.httpBody.setValue(entry.request.body || '');
+            setKvPairs('http-formdata-kv', {});
+        }
+        try {
+            const u = new URL(entry.request.url);
+            const params = {};
+            u.searchParams.forEach((v, k) => { params[k] = v; });
+            setKvPairs('http-params-kv', params);
+        } catch(e) {
+            setKvPairs('http-params-kv', {});
+        }
+        // 如果有 body 内容，自动切换到 Body tab
+        const bt2 = entry.request.body_type || 'none';
+        if (bt2 !== 'none' && entry.request.body) {
+            switchHttpTab('request', 'body');
+        }
+    } finally { _httpParamsSyncing = false; }
+    closeHttpPanel();
+}
+
+async function removeHttpEntry(index) {
+    if (_httpPanelMode === 'history') {
+        _httpHistory.splice(index, 1);
+        try { await invoke('http_save_history', { entries: _httpHistory }); } catch(e) {}
+    } else {
+        _httpFavorites.splice(index, 1);
+        try { await invoke('http_save_favorites', { entries: _httpFavorites }); } catch(e) {}
+    }
+    renderHttpPanelList();
+}
+
+let _httpConfirmAction = null;
+
+function showHttpConfirm(msg, action) {
+    document.getElementById('http-confirm-msg').textContent = msg;
+    _httpConfirmAction = action;
+    document.getElementById('http-confirm-modal').style.display = 'flex';
+}
+
+function closeHttpConfirm() {
+    document.getElementById('http-confirm-modal').style.display = 'none';
+    _httpConfirmAction = null;
+}
+
+async function confirmHttpAction() {
+    const action = _httpConfirmAction;
+    closeHttpConfirm();
+    if (action) await action();
+}
+
+async function clearHttpHistory() {
+    showHttpConfirm('确定清空所有历史记录？', async () => {
+        _httpHistory = [];
+        try { await invoke('http_save_history', { entries: [] }); } catch(e) {}
+        renderHttpPanelList();
+    });
+}
+
+async function clearHttpFavorites() {
+    showHttpConfirm('确定清空所有收藏？', async () => {
+        _httpFavorites = [];
+        try { await invoke('http_save_favorites', { entries: [] }); } catch(e) {}
+        renderHttpPanelList();
+    });
+}
+
+// ==================== 数据库工具 ====================
+
+const dbState = {
+    connections: [],
+    currentConnection: null,
+    currentDatabase: null,
+    editor: null,
+};
+
+// 初始化数据库工具
+async function initDatabaseTool() {
+    // 初始化 SQL 编辑器 (CodeMirror)
+    const sqlInput = document.getElementById('db-sql-input');
+    if (sqlInput && typeof CodeMirror !== 'undefined') {
+        dbState.editor = CodeMirror.fromTextArea(sqlInput, {
+            mode: 'text/x-sql',
+            theme: 'dracula',
+            lineNumbers: true,
+            indentUnit: 2,
+            tabSize: 2,
+            lineWrapping: true,
+            extraKeys: {
+                'Cmd-Enter': executeQuery,
+                'Ctrl-Enter': executeQuery,
+            },
+        });
+    }
+
+    // 绑定事件
+    document.getElementById('db-new-connection')?.addEventListener('click', openConnectionModal);
+    document.getElementById('db-test-connection')?.addEventListener('click', testConnection);
+    document.getElementById('db-save-connection')?.addEventListener('click', saveConnection);
+    document.getElementById('db-execute')?.addEventListener('click', executeQuery);
+    document.getElementById('db-format')?.addEventListener('click', formatSql);
+    document.getElementById('db-clear')?.addEventListener('click', clearSql);
+    document.getElementById('db-type-select')?.addEventListener('change', handleDbTypeChange);
+    document.getElementById('db-browse-file')?.addEventListener('click', browseSqliteFile);
+
+    // 连接选择器
+    document.getElementById('db-connection-select')?.addEventListener('change', handleConnectionChange);
+
+    // 弹窗关闭
+    document.querySelector('#db-connection-modal .modal-close')?.addEventListener('click', closeConnectionModal);
+    document.querySelector('#db-connection-modal .modal-cancel')?.addEventListener('click', closeConnectionModal);
+
+    // 加载保存的连接
+    await loadConnections();
+
+    // 处理数据库类型变化
+    handleDbTypeChange();
+}
+
+// 打开连接弹窗
+function openConnectionModal() {
+    const modal = document.getElementById('db-connection-modal');
+    if (modal) {
+        modal.classList.add('active');
+        document.getElementById('db-connection-form')?.reset();
+        handleDbTypeChange();
+    }
+}
+
+// 关闭连接弹窗
+function closeConnectionModal() {
+    const modal = document.getElementById('db-connection-modal');
+    if (modal) {
+        modal.classList.remove('active');
+    }
+}
+
+// 处理数据库类型变化
+function handleDbTypeChange() {
+    const dbType = document.getElementById('db-type-select')?.value;
+    const hostRow = document.getElementById('db-host-row');
+    const usernameRow = document.getElementById('db-username-row');
+    const passwordRow = document.getElementById('db-password-row');
+    const databaseRow = document.getElementById('db-database-row');
+    const fileRow = document.getElementById('db-file-row');
+    const portInput = document.getElementById('db-port-input');
+
+    if (dbType === 'sqlite') {
+        hostRow.style.display = 'none';
+        usernameRow.style.display = 'none';
+        passwordRow.style.display = 'none';
+        databaseRow.style.display = 'none';
+        fileRow.style.display = 'block';
+    } else {
+        hostRow.style.display = 'flex';
+        usernameRow.style.display = 'block';
+        passwordRow.style.display = 'block';
+        databaseRow.style.display = 'block';
+        fileRow.style.display = 'none';
+
+        // 更新默认端口
+        const ports = { mysql: '3306', postgresql: '5432' };
+        if (portInput) portInput.value = ports[dbType] || '3306';
+    }
+}
+
+// 浏览 SQLite 文件
+async function browseSqliteFile() {
+    const result = await invoke('open_save_dialog', {
+        defaultPath: '',
+        filters: [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }],
+    });
+    if (result) {
+        document.getElementById('db-file-path').value = result;
+    }
+}
+
+// 测试连接
+async function testConnection() {
+    const form = document.getElementById('db-connection-form');
+    const formData = new FormData(form);
+    const dbType = formData.get('db_type');
+
+    const config = {
+        name: formData.get('name') || '测试连接',
+        db_type: dbType,
+        host: formData.get('host') || 'localhost',
+        port: parseInt(formData.get('port')) || 3306,
+        username: formData.get('username') || '',
+        password: formData.get('password') || '',
+        database: dbType === 'sqlite' ? formData.get('database_file') : formData.get('database'),
+        ssl_mode: 'preferred',
+        options: {},
+    };
+
+    showStatus('正在测试连接...', 'info');
+
+    try {
+        const result = await invoke('db_test_connection', { config });
+        if (result.success) {
+            showStatus(`连接成功! ${result.server_version || ''}`, 'success');
+        } else {
+            showStatus(`连接失败: ${result.message}`, 'error');
+        }
+    } catch (e) {
+        showStatus(`测试失败: ${e}`, 'error');
+    }
+}
+
+// 保存连接
+async function saveConnection() {
+    const form = document.getElementById('db-connection-form');
+    const formData = new FormData(form);
+    const dbType = formData.get('db_type');
+
+    const config = {
+        name: formData.get('name'),
+        db_type: dbType,
+        host: formData.get('host') || 'localhost',
+        port: parseInt(formData.get('port')) || 3306,
+        username: formData.get('username') || '',
+        password: formData.get('password') || '',
+        database: dbType === 'sqlite' ? formData.get('database_file') : formData.get('database'),
+        ssl_mode: 'preferred',
+        options: {},
+    };
+
+    try {
+        const saved = await invoke('db_save_connection', { config });
+        showStatus(`连接 "${saved.name}" 已保存`, 'success');
+        closeConnectionModal();
+        await loadConnections();
+    } catch (e) {
+        showStatus(`保存失败: ${e}`, 'error');
+    }
+}
+
+// 加载连接列表
+async function loadConnections() {
+    try {
+        const connections = await invoke('db_list_connections');
+        dbState.connections = connections;
+
+        renderConnectionList();
+        updateConnectionSelect();
+    } catch (e) {
+        console.error('加载连接失败:', e);
+    }
+}
+
+// 渲染连接列表
+function renderConnectionList() {
+    const list = document.getElementById('db-connection-list');
+    if (!list) return;
+
+    if (dbState.connections.length === 0) {
+        list.innerHTML = '<div class="db-result-placeholder" style="padding: 16px;">暂无保存的连接</div>';
+        return;
+    }
+
+    const icons = { mysql: '🐬', postgresql: '🐘', sqlite: '📦' };
+
+    list.innerHTML = dbState.connections.map(conn => `
+        <div class="db-connection-item" data-id="${conn.id}">
+            <span class="db-connection-icon">${icons[conn.db_type] || '🗄️'}</span>
+            <span class="db-connection-name">${conn.name}</span>
+            <span class="db-connection-status"></span>
+        </div>
+    `).join('');
+
+    // 绑定点击事件
+    list.querySelectorAll('.db-connection-item').forEach(item => {
+        item.addEventListener('click', () => connectToDatabase(item.dataset.id));
+    });
+}
+
+// 更新连接选择器
+function updateConnectionSelect() {
+    const select = document.getElementById('db-connection-select');
+    if (!select) return;
+
+    select.innerHTML = '<option value="">选择连接...</option>' +
+        dbState.connections.map(conn => `<option value="${conn.id}">${conn.name}</option>`).join('');
+}
+
+// 连接到数据库
+async function connectToDatabase(connectionId) {
+    showStatus('正在连接...', 'info');
+
+    try {
+        await invoke('db_connect', { id: connectionId });
+        dbState.currentConnection = connectionId;
+
+        // 更新状态指示器
+        document.querySelectorAll('.db-connection-item').forEach(item => {
+            item.classList.remove('active');
+            item.querySelector('.db-connection-status')?.classList.remove('connected');
+        });
+
+        const item = document.querySelector(`.db-connection-item[data-id="${connectionId}"]`);
+        if (item) {
+            item.classList.add('active');
+            item.querySelector('.db-connection-status')?.classList.add('connected');
+        }
+
+        // 更新选择器
+        document.getElementById('db-connection-select').value = connectionId;
+
+        // 加载表列表
+        await loadTables();
+
+        showStatus('连接成功', 'success');
+    } catch (e) {
+        showStatus(`连接失败: ${e}`, 'error');
+    }
+}
+
+// 处理连接选择变化
+async function handleConnectionChange(e) {
+    const connectionId = e.target.value;
+    if (connectionId) {
+        await connectToDatabase(connectionId);
+    }
+}
+
+// 加载表列表
+async function loadTables() {
+    if (!dbState.currentConnection) return;
+
+    const tree = document.getElementById('db-tree');
+    if (!tree) return;
+
+    try {
+        const tables = await invoke('db_get_tables', {
+            connectionId: dbState.currentConnection,
+            database: dbState.currentDatabase || '',
+        });
+
+        renderTableTree(tables);
+    } catch (e) {
+        console.error('加载表列表失败:', e);
+        tree.innerHTML = '<div class="db-result-placeholder" style="padding: 16px;">加载失败</div>';
+    }
+}
+
+// 渲染表树
+function renderTableTree(tables) {
+    const tree = document.getElementById('db-tree');
+    if (!tree) return;
+
+    if (tables.length === 0) {
+        tree.innerHTML = '<div class="db-result-placeholder" style="padding: 16px;">无表</div>';
+        return;
+    }
+
+    const groups = { 'BASE TABLE': [], 'VIEW': [], 'table': [], 'view': [] };
+    tables.forEach(t => {
+        const type = t.table_type.toUpperCase();
+        if (groups[type]) groups[type].push(t);
+        else if (groups[t.table_type]) groups[t.table_type].push(t);
+        else groups['BASE TABLE'].push(t);
+    });
+
+    let html = '';
+
+    const allTables = [...(groups['BASE TABLE'] || []), ...(groups['table'] || [])];
+    const allViews = [...(groups['VIEW'] || []), ...(groups['view'] || [])];
+
+    if (allTables.length > 0) {
+        html += `
+            <div class="db-tree-folder">
+                <div class="db-tree-item"><span class="db-tree-icon">📁</span>表</div>
+                <div class="db-tree-children">
+                    ${allTables.map(t => `
+                        <div class="db-tree-item" data-table="${t.name}">
+                            <span class="db-tree-icon">📄</span>${t.name}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (allViews.length > 0) {
+        html += `
+            <div class="db-tree-folder">
+                <div class="db-tree-item"><span class="db-tree-icon">📁</span>视图</div>
+                <div class="db-tree-children">
+                    ${allViews.map(t => `
+                        <div class="db-tree-item" data-table="${t.name}">
+                            <span class="db-tree-icon">👁️</span>${t.name}
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    tree.innerHTML = html;
+
+    // 绑定文件夹展开/折叠
+    tree.querySelectorAll('.db-tree-folder > .db-tree-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            item.parentElement.classList.toggle('open');
+        });
+    });
+
+    // 绑定表点击事件
+    tree.querySelectorAll('.db-tree-children .db-tree-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const tableName = item.dataset.table;
+            insertSelectStatement(tableName);
+        });
+        item.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            const tableName = item.dataset.table;
+            showTableSchema(tableName);
+        });
+    });
+}
+
+// 插入 SELECT 语句
+function insertSelectStatement(tableName) {
+    const sql = `SELECT * FROM ${tableName} LIMIT 100;`;
+    if (dbState.editor) {
+        dbState.editor.setValue(sql);
+    }
+}
+
+// 显示表结构
+async function showTableSchema(tableName) {
+    try {
+        const schema = await invoke('db_get_table_schema', {
+            connectionId: dbState.currentConnection,
+            database: dbState.currentDatabase || '',
+            table: tableName,
+        });
+
+        let sql = `-- ${tableName} 表结构\n`;
+        schema.columns.forEach(col => {
+            sql += `-- ${col.name}: ${col.data_type}`;
+            if (col.is_primary_key) sql += ' PRIMARY KEY';
+            if (!col.nullable) sql += ' NOT NULL';
+            if (col.default) sql += ` DEFAULT ${col.default}`;
+            sql += '\n';
+        });
+
+        if (dbState.editor) {
+            dbState.editor.setValue(sql);
+        }
+    } catch (e) {
+        showStatus(`获取表结构失败: ${e}`, 'error');
+    }
+}
+
+// 执行查询
+async function executeQuery() {
+    if (!dbState.currentConnection) {
+        showStatus('请先选择连接', 'error');
+        return;
+    }
+
+    const sql = dbState.editor ? dbState.editor.getValue() : '';
+    if (!sql.trim()) {
+        showStatus('请输入 SQL 语句', 'error');
+        return;
+    }
+
+    showStatus('执行中...', 'info');
+
+    const startTime = Date.now();
+
+    try {
+        // 判断是查询还是执行
+        const isQuery = /^\s*(SELECT|SHOW|DESC|DESCRIBE|EXPLAIN)/i.test(sql);
+
+        if (isQuery) {
+            const result = await invoke('db_query', {
+                connectionId: dbState.currentConnection,
+                sql,
+            });
+            displayQueryResult(result, Date.now() - startTime);
+        } else {
+            const result = await invoke('db_execute', {
+                connectionId: dbState.currentConnection,
+                sql,
+            });
+            displayExecuteResult(result, Date.now() - startTime);
+        }
+    } catch (e) {
+        showStatus(`执行失败: ${e}`, 'error');
+        displayError(e, Date.now() - startTime);
+    }
+}
+
+// 显示查询结果
+function displayQueryResult(result, duration) {
+    const container = document.getElementById('db-result-content');
+    const info = document.getElementById('db-result-info');
+
+    if (!result.success) {
+        displayError(result.error || '未知错误', duration);
+        return;
+    }
+
+    if (result.row_count === 0) {
+        container.innerHTML = '<div class="db-result-placeholder">查询返回 0 行</div>';
+        info.textContent = `0 行 | ${duration}ms`;
+        return;
+    }
+
+    let html = `<table class="db-result-table"><thead><tr>`;
+    result.columns.forEach(col => {
+        html += `<th>${col.name}</th>`;
+    });
+    html += `</tr></thead><tbody>`;
+
+    result.rows.forEach(row => {
+        html += '<tr>';
+        row.forEach(cell => {
+            html += `<td class="${cell === null ? 'null' : ''}">${cell === null ? 'NULL' : escapeHtml(cell)}</td>`;
+        });
+        html += '</tr>';
+    });
+
+    html += '</tbody></table>';
+    container.innerHTML = html;
+
+    info.textContent = `${result.row_count} 行 | ${duration}ms`;
+    showStatus('查询完成', 'success');
+}
+
+// 显示执行结果
+function displayExecuteResult(result, duration) {
+    const container = document.getElementById('db-result-content');
+    const info = document.getElementById('db-result-info');
+
+    if (!result.success) {
+        displayError(result.error || '未知错误', duration);
+        return;
+    }
+
+    container.innerHTML = `<div class="db-result-placeholder">执行成功</div>`;
+
+    let infoText = `影响 ${result.affected_rows} 行`;
+    if (result.last_insert_id) {
+        infoText += ` | 最后插入 ID: ${result.last_insert_id}`;
+    }
+    infoText += ` | ${duration}ms`;
+
+    info.textContent = infoText;
+    showStatus('执行完成', 'success');
+}
+
+// 显示错误
+function displayError(error, duration) {
+    const container = document.getElementById('db-result-content');
+    const info = document.getElementById('db-result-info');
+
+    container.innerHTML = `<div class="db-result-placeholder" style="color: var(--red);">错误: ${escapeHtml(String(error))}</div>`;
+    info.textContent = `错误 | ${duration}ms`;
+    showStatus('执行失败', 'error');
+}
+
+// 格式化 SQL
+function formatSql() {
+    if (!dbState.editor) return;
+
+    let sql = dbState.editor.getValue();
+
+    // 简单格式化
+    sql = sql
+        .replace(/\s+/g, ' ')
+        .replace(/\s*,\s*/g, ', ')
+        .replace(/FROM/gi, '\nFROM')
+        .replace(/WHERE/gi, '\nWHERE')
+        .replace(/GROUP BY/gi, '\nGROUP BY')
+        .replace(/ORDER BY/gi, '\nORDER BY')
+        .replace(/LIMIT/gi, '\nLIMIT')
+        .replace(/ JOIN/gi, '\nJOIN')
+        .replace(/ ON /gi, '\n  ON ');
+
+    dbState.editor.setValue(sql.trim());
+}
+
+// 清空 SQL
+function clearSql() {
+    if (dbState.editor) {
+        dbState.editor.setValue('');
+    }
+}
+
+// HTML 转义
+function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+}
+
+// 在页面切换时初始化
+document.querySelectorAll('[data-page="database"]').forEach(item => {
+    item.addEventListener('click', () => {
+        setTimeout(initDatabaseTool, 100);
+    });
+});
