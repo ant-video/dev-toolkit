@@ -1,6 +1,6 @@
 # 📐 DevToolkit 设计文档
 
-> 版本：1.0.0 | 更新日期：2026-05-15
+> 版本：1.1.0 | 更新日期：2026-05-21
 
 ## 1. 项目概述
 
@@ -20,7 +20,7 @@ DevToolkit 是一款面向开发者的跨平台桌面工具集应用，将日常
 | 价值 | 说明 |
 |------|------|
 | **离线可用** | 基于 Tauri 桌面应用，无需联网，数据不出本机 |
-| **一站式** | 16 类工具 29 个命令，覆盖日常 90% 的编码/解码/加解密需求 |
+| **一站式** | 18 类工具 69 个命令，覆盖日常 90% 的编码/解码/加解密需求 |
 | **高性能** | Rust 后端处理计算密集任务，CodeMirror 虚拟渲染支持大文本 |
 | **隐私安全** | 所有数据处理均在本地完成，无网络请求 |
 
@@ -72,7 +72,22 @@ DevToolkit 是一款面向开发者的跨平台桌面工具集应用，将日常
 │  │  ├─ Diff: text_diff                          │   │
 │  │  ├─ 编解码: base64/url/unicode/html           │   │
 │  │  ├─ 加密: md5/sha1/sha256/sha512/hmac/aes    │   │
-│  │  └─ 转换: base_convert/color/jwt/url_parse   │   │
+│  │  ├─ 转换: base_convert/color/jwt/url_parse   │   │
+│  │  ├─ 截图: trigger/system/crop/save/...       │   │
+│  │  ├─ 生成: uuid_generate/password_generate    │   │
+│  │  ├─ YAML: yaml_to_json/json_to_yaml          │   │
+│  │  ├─ XML: xml_format/xml_minify               │   │
+│  │  ├─ QR码: qr_generate/qr_decode              │   │
+│  │  ├─ HTTP: http_request/history/favorites     │   │
+│  │  ├─ 翻译: translate/open_translate_webview   │   │
+│  │  ├─ CSS: css_unit_convert                    │   │
+│  │  ├─ Cron: cron_parse                         │   │
+│  │  ├─ 文本处理: deduplicate/sort/trim          │   │
+│  │  ├─ 大小写: text_case_convert                │   │
+│  │  ├─ 数字: number_format                      │   │
+│  │  ├─ MIME: mime_lookup                        │   │
+│  │  ├─ Lorem: lorem_generate                    │   │
+│  │  └─ 图片: image_to_base64/base64_to_image    │   │
 │  └──────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
 ```
@@ -116,6 +131,24 @@ pub fn json_format(input: String) -> JsonResult { ... }
 | 14 | 颜色转换 | `color` | 1 | 颜色值 | HEX/RGB/HSL互转 |
 | 15 | JWT 解码 | `jwt` | 1 | JWT Token | Header/Payload/Signature |
 | 16 | URL 解析 | `url-parse` | 1 | URL | 协议/主机/路径/参数等 |
+| 17 | 截图工具 | `screenshot` | 8 | 屏幕区域 | PNG 图片 + 编辑器 |
+| 18 | UUID 生成 | `uuid` | 1 | 无 | UUID 多格式 |
+| 19 | 密码生成 | `password` | 1 | 长度/字符集选项 | 密码 + 强度评估 |
+| 20 | YAML/JSON | `yaml-json` | 2 | YAML/JSON | 互转结果 |
+| 21 | XML 工具 | `xml-tool` | 2 | XML 字符串 | 格式化/压缩 |
+| 22 | QR 码 | `qr-code` | 2 | 文本/图片 | QR码图片/解码结果 |
+| 23 | HTTP 请求 | `http-client` | 8 | URL/方法/参数 | 响应内容 |
+| 24 | 翻译 | `translate` | 2 | 文本+语言对 | 翻译结果 |
+| 25 | CSS 单位 | `css-unit` | 1 | 数值+单位 | 转换结果 |
+| 26 | Cron 解析 | `cron` | 1 | Cron 表达式 | 描述 + 执行时间 |
+| 27 | 文本去重 | `text-deduplicate` | 1 | 文本 | 去重结果 |
+| 28 | 文本排序 | `text-sort` | 1 | 文本 | 排序结果 |
+| 29 | 去除空白行 | `text-trim` | 1 | 文本 | 清理结果 |
+| 30 | 大小写转换 | `case-convert` | 1 | 文本 | 多种命名风格 |
+| 31 | 数字格式化 | `number-format` | 1 | 数字 | 多种格式 |
+| 32 | MIME 查询 | `mime` | 1 | 扩展名/MIME类型 | 查询结果 |
+| 33 | Lorem Ipsum | `lorem` | 1 | 段落数/语言 | 占位文本 |
+| 34 | 图片 Base64 | `image-base64` | 2 | 图片/Base64 | 互转结果 |
 
 ### 3.2 核心算法
 
@@ -160,6 +193,59 @@ pub fn json_format(input: String) -> JsonResult { ... }
 
 解密:
   Base64 解码 → 前12字节为nonce → AES-256-GCM 解密 → 明文
+```
+
+#### 3.2.4 截图工具
+
+```
+触发: 全局快捷键 / 点击按钮
+      ↓
+  调用系统截图命令
+  ├─ macOS: screencapture -s/-w/-x
+  ├─ Windows: PowerShell + .NET
+  └─ Linux: gnome-screenshot / scrot
+      ↓
+  获取截图数据 → Base64 编码
+      ↓
+  打开截图编辑器窗口 (screenshot-editor.html)
+      ↓
+  编辑: 裁剪/标注/箭头/马赛克
+      ↓
+  导出: 保存文件 / 复制到剪贴板
+```
+
+**跨平台剪贴板**：
+- macOS: Swift 脚本调用 NSPasteboard
+- Windows: PowerShell Clipboard
+- Linux: xclip / wl-copy
+
+#### 3.2.5 HTTP 请求工具
+
+```
+构建请求: URL + Method + Headers + Body
+      ↓
+  reqwest::Client 发送请求
+      ↓
+  获取响应: Status + Headers + Body
+      ↓
+  保存历史记录 (本地 JSON)
+      ↓
+  显示结果 (JSON 语法高亮)
+```
+
+**存储结构**：
+- 历史：`http_history.json`
+- 收藏夹：`http_favorites.json`
+- 文件夹分类：`http_folders.json`
+
+#### 3.2.6 QR 码工具
+
+```
+生成:
+  输入文本 → qrcode crate → 二维码矩阵 → 渲染为 PNG
+
+解码:
+  输入图片 → image crate → luma 灰度图 → rqrr 解码 → 文本
 ```
 
 ### 3.3 编辑器系统
@@ -398,12 +484,13 @@ git push --tags
 
 | 文件 | 行数 | 说明 |
 |------|------|------|
-| `src/index.html` | 372 | 页面结构 |
-| `src/styles.css` | 1045 | 样式与主题 |
-| `src/app.js` | 1044 | 前端逻辑 |
-| `src-tauri/src/commands.rs` | 814 | 29 个 Rust 命令 |
-| `src-tauri/src/lib.rs` | 50 | 命令注册 |
-| **总计** | **3325** | 核心代码 |
+| `src/index.html` | 450+ | 页面结构 |
+| `src/styles.css` | 1228+ | 样式与主题 |
+| `src/app.js` | 1800+ | 前端逻辑 |
+| `src/screenshot-editor.html` | 615 | 截图编辑器 |
+| `src-tauri/src/commands.rs` | 2989 | 69 个 Rust 命令 |
+| `src-tauri/src/lib.rs` | 146 | 命令注册 + 全局快捷键 |
+| **总计** | **7200+** | 核心代码 |
 
 ---
 
@@ -414,6 +501,8 @@ git push --tags
 | 依赖 | 版本 | 用途 |
 |------|------|------|
 | tauri | 2.x | 应用框架 |
+| tauri-plugin-global-shortcut | 2.x | 全局快捷键 |
+| tauri-plugin-opener | 2.x | 打开外部链接 |
 | serde / serde_json | 1.x | 序列化 |
 | chrono / chrono-tz | 0.4 / 0.10 | 时间处理 |
 | md-5 | 0.10 | MD5 哈希 |
@@ -428,6 +517,15 @@ git push --tags
 | regex | 1.x | 正则表达式 |
 | urlencoding | 2.x | URL 编解码 |
 | jwt | 0.16 | JWT 解码 |
+| image | 0.25 | 图片处理 |
+| qrcode | 0.14 | QR 码生成 |
+| rqrr | 0.8 | QR 码解码 |
+| yaml-rust2 | 0.9 | YAML 解析 |
+| quick-xml | 0.37 | XML 解析 |
+| cron | 0.15 | Cron 表达式解析 |
+| uuid | 1.x | UUID 生成 |
+| reqwest | 0.12 | HTTP 客户端 |
+| tokio | 1.x | 异步运行时 |
 
 ### 9.2 前端依赖
 
@@ -440,12 +538,12 @@ git push --tags
 
 ## 10. 未来规划
 
-### 10.1 短期 (v1.1)
+### 10.1 短期 (v1.2)
 
 - [ ] Markdown 预览工具
-- [ ] QR 码生成/解析
 - [ ] 正则表达式可视化
-- [ ] 系统快捷键全局呼出
+- [ ] JSON Schema 校验
+- [ ] 更多翻译 API 支持
 
 ### 10.2 中期 (v1.5)
 
@@ -458,5 +556,5 @@ git push --tags
 
 - [ ] 端到端加密的云同步配置
 - [ ] 团队共享工具模板
-- [ ] HTTP 请求工具（类似 Postman）
 - [ ] WebSocket 调试工具
+- [ ] 数据库连接工具
