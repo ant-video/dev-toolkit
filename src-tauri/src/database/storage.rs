@@ -45,12 +45,18 @@ async fn get_pool() -> Result<SqlitePool, String> {
             ssl_mode TEXT NOT NULL DEFAULT 'preferred',
             options TEXT,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            \"group\" TEXT
         )",
     )
     .execute(&pool)
     .await
     .map_err(|e| format!("创建表失败: {}", e))?;
+
+    // 迁移：旧版本数据库可能缺少 group 列；ALTER 失败则忽略（说明已存在）
+    let _ = sqlx::query("ALTER TABLE connections ADD COLUMN \"group\" TEXT")
+        .execute(&pool)
+        .await;
 
     let _ = STORAGE_POOL.set(pool.clone());
     Ok(pool)
@@ -69,8 +75,8 @@ pub async fn save_connection(config: ConnectionConfig) -> Result<SavedConnection
     let options_str = serde_json::to_string(&config.options).unwrap_or_else(|_| "{}".to_string());
 
     sqlx::query(
-        "INSERT INTO connections (id, name, db_type, host, port, username, encrypted_password, database, ssl_mode, options, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO connections (id, name, db_type, host, port, username, encrypted_password, database, ssl_mode, options, created_at, updated_at, \"group\")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&id)
     .bind(&config.name)
@@ -84,6 +90,7 @@ pub async fn save_connection(config: ConnectionConfig) -> Result<SavedConnection
     .bind(&options_str)
     .bind(now)
     .bind(now)
+    .bind(&config.group)
     .execute(&pool)
     .await
     .map_err(|e| format!("保存连接失败: {}", e))?;
@@ -101,6 +108,7 @@ pub async fn save_connection(config: ConnectionConfig) -> Result<SavedConnection
         options: config.options,
         created_at: now,
         updated_at: now,
+        group: config.group,
     })
 }
 
@@ -108,8 +116,8 @@ pub async fn save_connection(config: ConnectionConfig) -> Result<SavedConnection
 pub async fn list_connections() -> Result<Vec<SavedConnection>, String> {
     let pool = get_pool().await?;
 
-    let rows = sqlx::query_as::<_, (String, String, String, String, i32, String, String, String, String, String, i64, i64)>(
-        "SELECT id, name, db_type, host, port, username, encrypted_password, database, ssl_mode, options, created_at, updated_at FROM connections ORDER BY created_at DESC",
+    let rows = sqlx::query_as::<_, (String, String, String, String, i32, String, String, String, String, String, i64, i64, Option<String>)>(
+        "SELECT id, name, db_type, host, port, username, encrypted_password, database, ssl_mode, options, created_at, updated_at, \"group\" FROM connections ORDER BY created_at DESC",
     )
     .fetch_all(&pool)
     .await
@@ -130,6 +138,7 @@ pub async fn list_connections() -> Result<Vec<SavedConnection>, String> {
             options: serde_json::from_str(&row.9).unwrap_or_default(),
             created_at: row.10,
             updated_at: row.11,
+            group: row.12,
         })
         .collect())
 }
@@ -151,8 +160,8 @@ pub async fn delete_connection(id: &str) -> Result<(), String> {
 pub async fn get_connection(id: &str) -> Result<(SavedConnection, String), String> {
     let pool = get_pool().await?;
 
-    let row = sqlx::query_as::<_, (String, String, String, String, i32, String, String, String, String, String, i64, i64)>(
-        "SELECT id, name, db_type, host, port, username, encrypted_password, database, ssl_mode, options, created_at, updated_at FROM connections WHERE id = ?",
+    let row = sqlx::query_as::<_, (String, String, String, String, i32, String, String, String, String, String, i64, i64, Option<String>)>(
+        "SELECT id, name, db_type, host, port, username, encrypted_password, database, ssl_mode, options, created_at, updated_at, \"group\" FROM connections WHERE id = ?",
     )
     .bind(id)
     .fetch_one(&pool)
@@ -172,6 +181,7 @@ pub async fn get_connection(id: &str) -> Result<(SavedConnection, String), Strin
         options: serde_json::from_str(&row.9).unwrap_or_default(),
         created_at: row.10,
         updated_at: row.11,
+        group: row.12,
     };
 
     let password = super::crypto::decrypt_password(&row.6)?;

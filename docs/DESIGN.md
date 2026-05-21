@@ -1,6 +1,6 @@
 # 📐 DevToolkit 设计文档
 
-> 版本：1.1.0 | 更新日期：2026-05-21
+> 版本：1.2.0 | 更新日期：2026-05-21
 
 ## 1. 项目概述
 
@@ -20,7 +20,7 @@ DevToolkit 是一款面向开发者的跨平台桌面工具集应用，将日常
 | 价值 | 说明 |
 |------|------|
 | **离线可用** | 基于 Tauri 桌面应用，无需联网，数据不出本机 |
-| **一站式** | 18 类工具 69 个命令，覆盖日常 90% 的编码/解码/加解密需求 |
+| **一站式** | 19 类工具 85 个命令，覆盖日常 90% 的编码/解码/加解密/数据库需求 |
 | **高性能** | Rust 后端处理计算密集任务，CodeMirror 虚拟渲染支持大文本 |
 | **隐私安全** | 所有数据处理均在本地完成，无网络请求 |
 
@@ -42,6 +42,8 @@ DevToolkit 是一款面向开发者的跨平台桌面工具集应用，将日常
 │                  │      sha1/sha2/md-5  │
 │                  │      hmac/digest     │
 │                  │      regex           │
+│                  │      sqlx            │
+│                  │      rfd             │
 ├──────────────────┴──────────────────────┤
 │           macOS / Windows / Linux        │
 └─────────────────────────────────────────┘
@@ -87,7 +89,8 @@ DevToolkit 是一款面向开发者的跨平台桌面工具集应用，将日常
 │  │  ├─ 数字: number_format                      │   │
 │  │  ├─ MIME: mime_lookup                        │   │
 │  │  ├─ Lorem: lorem_generate                    │   │
-│  │  └─ 图片: image_to_base64/base64_to_image    │   │
+│  │  ├─ 图片: image_to_base64/base64_to_image    │   │
+│  │  └─ 数据库: db_connect/query/cancel/export/..│   │
 │  └──────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
 ```
@@ -149,6 +152,7 @@ pub fn json_format(input: String) -> JsonResult { ... }
 | 32 | MIME 查询 | `mime` | 1 | 扩展名/MIME类型 | 查询结果 |
 | 33 | Lorem Ipsum | `lorem` | 1 | 段落数/语言 | 占位文本 |
 | 34 | 图片 Base64 | `image-base64` | 2 | 图片/Base64 | 互转结果 |
+| 35 | 数据库客户端 | `database` | 16 | SQL/连接配置/文件 | 查询结果/表结构/导出文件 |
 
 ### 3.2 核心算法
 
@@ -246,6 +250,68 @@ pub fn json_format(input: String) -> JsonResult { ... }
 
 解码:
   输入图片 → image crate → luma 灰度图 → rqrr 解码 → 文本
+```
+
+#### 3.2.7 数据库客户端
+
+**查询执行与取消**：
+
+```
+前端发起查询: sql + queryToken(UUID)
+      ↓
+  register_query → 获取 backend PID（CONNECTION_ID / pg_backend_pid）
+  → 注册到 QueryRegistry
+      ↓
+  sqlx 执行 SQL
+      ↓
+  查询完成 → QueryGuard::drop 自动 unregister
+  
+取消路径:
+  前端点击"取消" → db_cancel_query(queryToken)
+  → 从 registry 获取 ActiveQuery
+  → 发送取消信号
+    ├─ MySQL: KILL QUERY {id}
+    ├─ PostgreSQL: pg_cancel_backend($1)
+    └─ SQLite: 不支持（返回错误）
+```
+
+**CSV 导入流程**：
+
+```
+选择文件 → db_open_csv_file()（原生对话框，最大 50 MB）
+      ↓
+  前端解析 CSV（逗号/制表符分隔，自动检测）
+      ↓
+  展示列预览 → 用户确认/调整映射
+      ↓
+  分批生成 INSERT 语句 → db_execute() 执行
+```
+
+**数据导出流程**：
+
+```
+用户打开导出对话框 → 选择范围（当前页/全部）
+      ↓
+  前端按格式序列化：
+  ├─ CSV/TSV: 逐行拼接，支持 BOM 和自定义分隔符
+  ├─ JSON: objects 或 arrays 形状，可选 pretty-print
+  ├─ SQL INSERT: 分批生成，可配置 batch 大小
+  └─ Markdown: GFM 表格格式
+      ↓
+  复制到剪贴板 或 db_save_file()（原生保存对话框）
+```
+
+**外键导航**：
+
+```
+双击树节点 → db_get_foreign_keys(connectionId, database, table)
+      ↓
+  各数据库实现:
+  ├─ MySQL: information_schema.KEY_COLUMN_USAGE
+  ├─ PostgreSQL: pg_constraint + pg_class + pg_namespace
+  └─ SQLite: PRAGMA foreign_key_list(table)
+      ↓
+  在结构面板显示 FK 列表；点击可跳转引用表
 ```
 
 ### 3.3 编辑器系统
@@ -484,13 +550,14 @@ git push --tags
 
 | 文件 | 行数 | 说明 |
 |------|------|------|
-| `src/index.html` | 450+ | 页面结构 |
-| `src/styles.css` | 1228+ | 样式与主题 |
-| `src/app.js` | 1800+ | 前端逻辑 |
+| `src/index.html` | 1691 | 页面结构 |
+| `src/styles.css` | 4730 | 样式与主题 |
+| `src/app.js` | 7037 | 前端逻辑 |
 | `src/screenshot-editor.html` | 615 | 截图编辑器 |
-| `src-tauri/src/commands.rs` | 2989 | 69 个 Rust 命令 |
-| `src-tauri/src/lib.rs` | 146 | 命令注册 + 全局快捷键 |
-| **总计** | **7200+** | 核心代码 |
+| `src-tauri/src/commands.rs` | 2989 | 69 个通用 Rust 命令 |
+| `src-tauri/src/database/` | 1500+ | 16 个数据库命令 + 多驱动实现 |
+| `src-tauri/src/lib.rs` | 165 | 命令注册 + 全局快捷键 |
+| **总计** | **18700+** | 核心代码 |
 
 ---
 
@@ -526,6 +593,8 @@ git push --tags
 | uuid | 1.x | UUID 生成 |
 | reqwest | 0.12 | HTTP 客户端 |
 | tokio | 1.x | 异步运行时 |
+| sqlx | 0.8 | 异步数据库驱动（MySQL / PostgreSQL / SQLite） |
+| rfd | 0.15 | 原生文件选择/保存对话框 |
 
 ### 9.2 前端依赖
 
@@ -557,4 +626,3 @@ git push --tags
 - [ ] 端到端加密的云同步配置
 - [ ] 团队共享工具模板
 - [ ] WebSocket 调试工具
-- [ ] 数据库连接工具

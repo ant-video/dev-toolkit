@@ -40,6 +40,8 @@ pub struct ConnectionConfig {
     pub ssl_mode: SslMode,
     #[serde(default)]
     pub options: HashMap<String, String>,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 /// 保存的连接（持久化存储，密码加密）
@@ -57,6 +59,8 @@ pub struct SavedConnection {
     pub options: HashMap<String, String>,
     pub created_at: i64,
     pub updated_at: i64,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 
 /// 连接测试结果
@@ -131,6 +135,15 @@ pub struct DatabaseInfo {
     pub name: String,
     pub charset: Option<String>,
     pub collation: Option<String>,
+}
+
+/// 外键信息
+#[derive(Debug, Serialize, Clone)]
+pub struct ForeignKeyInfo {
+    pub column: String,
+    pub referenced_table: String,
+    pub referenced_column: String,
+    pub referenced_schema: Option<String>,
 }
 
 impl ConnectionConfig {

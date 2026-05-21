@@ -1,4 +1,4 @@
-use crate::database::{ColumnInfo, ConnectionConfig, DatabaseInfo, ExecuteResult, QueryResult, TableInfo, TableSchema, ColumnSchema, SslMode};
+use crate::database::{ColumnInfo, ConnectionConfig, DatabaseInfo, ExecuteResult, ForeignKeyInfo, QueryResult, TableInfo, TableSchema, ColumnSchema, SslMode};
 use sqlx::mysql::{MySqlPoolOptions, MySqlRow};
 use sqlx::{Column, Executor, Row};
 use std::time::Instant;
@@ -359,4 +359,32 @@ pub async fn execute_statement(
             error: Some(e.to_string()),
         }),
     }
+}
+
+/// 查询表的外键关系
+pub async fn get_foreign_keys(
+    pool: &sqlx::mysql::MySqlPool,
+    database: &str,
+    table: &str,
+) -> Result<Vec<ForeignKeyInfo>, String> {
+    let sql = r#"
+        SELECT COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME, REFERENCED_TABLE_SCHEMA
+        FROM information_schema.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+    "#;
+    let rows = sqlx::query(sql)
+        .bind(database)
+        .bind(table)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("查询外键失败: {}", e))?;
+    Ok(rows
+        .iter()
+        .map(|r| ForeignKeyInfo {
+            column: r.get::<String, _>(0),
+            referenced_table: r.get::<String, _>(1),
+            referenced_column: r.get::<String, _>(2),
+            referenced_schema: r.try_get::<Option<String>, _>(3).ok().flatten(),
+        })
+        .collect())
 }

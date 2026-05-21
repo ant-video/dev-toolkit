@@ -47,12 +47,32 @@ pub async fn get_tables(pool: &sqlx::sqlite::SqlitePool) -> Result<Vec<TableInfo
         .collect())
 }
 
+/// 校验 SQLite 标识符，仅允许字母、数字、下划线，且不以数字开头
+fn validate_sqlite_ident(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 128 {
+        return Err("非法的表名".to_string());
+    }
+    let mut chars = name.chars();
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Err("非法的表名".to_string());
+    }
+    for c in chars {
+        if !(c.is_ascii_alphanumeric() || c == '_') {
+            return Err("非法的表名".to_string());
+        }
+    }
+    Ok(())
+}
+
 /// 获取表结构
 pub async fn get_table_schema(
     pool: &sqlx::sqlite::SqlitePool,
     table: &str,
 ) -> Result<TableSchema, String> {
-    let query = format!("PRAGMA table_info({})", table);
+    // PRAGMA 不支持参数化绑定，必须做严格的标识符校验
+    validate_sqlite_ident(table)?;
+    let query = format!("PRAGMA table_info(\"{}\")", table);
     let rows = sqlx::query(&query)
         .fetch_all(pool)
         .await
@@ -212,4 +232,23 @@ pub async fn execute_statement(
             error: Some(e.to_string()),
         }),
     }
+}
+
+/// 查询表的外键关系 (SQLite: PRAGMA foreign_key_list)
+pub async fn get_foreign_keys(
+    pool: &sqlx::sqlite::SqlitePool,
+    table: &str,
+) -> Result<Vec<crate::database::ForeignKeyInfo>, String> {
+    validate_sqlite_ident(table)?;
+    let sql = format!("PRAGMA foreign_key_list(\"{}\")", table);
+    use sqlx::Row;
+    let rows = sqlx::query(&sql).fetch_all(pool).await
+        .map_err(|e| format!("查询外键失败: {}", e))?;
+    // pragma 列: id, seq, table, from, to, on_update, on_delete, match
+    Ok(rows.iter().map(|r| crate::database::ForeignKeyInfo {
+        column: r.try_get::<String, _>("from").unwrap_or_default(),
+        referenced_table: r.try_get::<String, _>("table").unwrap_or_default(),
+        referenced_column: r.try_get::<String, _>("to").unwrap_or_default(),
+        referenced_schema: None,
+    }).collect())
 }

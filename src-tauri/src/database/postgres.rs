@@ -92,9 +92,35 @@ pub async fn get_table_schema(
     schema: &str,
     table: &str,
 ) -> Result<TableSchema, String> {
+    // 查询主键列
+    let pk_rows = sqlx::query(
+        r#"
+        SELECT kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+         AND tc.table_name = kcu.table_name
+        WHERE tc.constraint_type = 'PRIMARY KEY'
+          AND tc.table_schema = $1
+          AND tc.table_name = $2
+        "#,
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("查询主键失败: {}", e))?;
+
+    let pk_columns: std::collections::HashSet<String> = pk_rows
+        .iter()
+        .map(|row| row.get::<String, _>(0))
+        .collect();
+
     let query = r#"
         SELECT column_name, data_type, character_maximum_length,
-               numeric_precision, numeric_scale, is_nullable, column_default
+               numeric_precision, numeric_scale, is_nullable, column_default,
+               is_identity
         FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = $2
         ORDER BY ordinal_position
@@ -130,15 +156,29 @@ pub async fn get_table_schema(
                 None
             };
 
+            let name: String = row.get(0);
+            let default: Option<String> = row.try_get::<Option<String>, _>(6).ok().flatten();
+            let is_identity: String = row
+                .try_get::<Option<String>, _>(7)
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+            // PostgreSQL 自增判定：IDENTITY 列，或 serial 类型默认值为 nextval(...)
+            let auto_increment = is_identity.eq_ignore_ascii_case("YES")
+                || default
+                    .as_deref()
+                    .map(|d| d.trim_start().starts_with("nextval("))
+                    .unwrap_or(false);
+
             ColumnSchema {
-                name: row.get(0),
+                is_primary_key: pk_columns.contains(&name),
+                auto_increment,
                 data_type: row.get::<String, _>(1).to_uppercase(),
                 length,
                 nullable: row.get::<String, _>(5) == "YES",
-                default: row.try_get::<Option<String>, _>(6).ok().flatten(),
-                is_primary_key: false,
-                auto_increment: false,
+                default,
                 comment: None,
+                name,
             }
         })
         .collect();
@@ -273,4 +313,34 @@ pub async fn execute_statement(
             error: Some(e.to_string()),
         }),
     }
+}
+
+/// 查询表的外键关系
+pub async fn get_foreign_keys(
+    pool: &sqlx::postgres::PgPool,
+    schema: &str,
+    table: &str,
+) -> Result<Vec<crate::database::ForeignKeyInfo>, String> {
+    let sql = r#"
+        SELECT kcu.column_name, ccu.table_name, ccu.column_name, ccu.table_schema
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+         AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND tc.table_schema = $1
+          AND tc.table_name = $2
+    "#;
+    use sqlx::Row;
+    let rows = sqlx::query(sql).bind(schema).bind(table).fetch_all(pool).await
+        .map_err(|e| format!("查询外键失败: {}", e))?;
+    Ok(rows.iter().map(|r| crate::database::ForeignKeyInfo {
+        column: r.get::<String, _>(0),
+        referenced_table: r.get::<String, _>(1),
+        referenced_column: r.get::<String, _>(2),
+        referenced_schema: r.try_get::<Option<String>, _>(3).ok().flatten(),
+    }).collect())
 }

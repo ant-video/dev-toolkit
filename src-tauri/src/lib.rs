@@ -36,6 +36,7 @@ pub fn run() {
         )
         .manage(commands::ScreenshotState::default())
         .manage(database::ConnectionPoolManager::new())
+        .manage(database::QueryRegistry::new())
         .invoke_handler(tauri::generate_handler![
             // 时间转换
             commands::timestamp_now,
@@ -144,9 +145,14 @@ pub fn run() {
             database::commands::db_disconnect,
             database::commands::db_query,
             database::commands::db_execute,
+            database::commands::db_cancel_query,
             database::commands::db_get_databases,
             database::commands::db_get_tables,
             database::commands::db_get_table_schema,
+            database::commands::db_get_foreign_keys,
+            database::commands::db_open_sql_file,
+            database::commands::db_open_csv_file,
+            database::commands::db_save_file,
         ])
         .setup(move |app| {
             let gs = app.global_shortcut();

@@ -9,6 +9,7 @@
     <link rel="stylesheet" href="codemirror/dracula.min.css">
     <link rel="stylesheet" href="codemirror/foldgutter.min.css">
     <link rel="stylesheet" href="codemirror/dialog.min.css">
+    <link rel="stylesheet" href="codemirror/show-hint.min.css">
 </head>
 <body>
     <div class="app" id="app">
@@ -1222,22 +1223,43 @@
                             <select id="db-database-select" class="db-select">
                                 <option value="">选择数据库...</option>
                             </select>
+                            <div class="db-conn-status" id="db-conn-status" data-state="idle" title="连接状态">
+                                <span class="db-conn-dot"></span>
+                                <span class="db-conn-text" id="db-conn-text">未连接</span>
+                                <span class="db-conn-trans" id="db-conn-trans" hidden title="事务进行中">⚡ 事务</span>
+                            </div>
                             <div class="db-toolbar-actions">
                                 <button class="btn btn-primary" id="db-execute">执行</button>
                                 <button class="btn" id="db-format">格式化</button>
                                 <button class="btn" id="db-clear">清空</button>
+                                <button class="btn" id="db-open-sql" title="打开 .sql 文件">📂 打开</button>
+                                <button class="btn" id="db-import-csv" title="从 CSV 导入数据">⤵ CSV</button>
                             </div>
                         </div>
 
                         <div class="db-editor-container">
-                            <div class="db-editor-header">
-                                <span>SQL 编辑器</span>
-                                <div class="db-editor-actions">
+                            <div class="db-tab-strip">
+                                <div class="db-tabs" id="db-tab-list"></div>
+                                <button class="db-tab-new" id="db-tab-new" title="新建标签 (Cmd+T)">+</button>
+                                <div class="db-tab-actions">
                                     <span class="btn-text" id="db-history">历史</span>
                                     <span class="btn-text" id="db-favorites">收藏</span>
                                 </div>
                             </div>
-                            <textarea id="db-sql-input"></textarea>
+                            <div class="db-tab-panes" id="db-tab-panes"></div>
+                            <div class="db-history-panel" id="db-history-panel" hidden>
+                                <div class="db-history-header">
+                                    <div class="db-history-tabs">
+                                        <button class="db-history-tab active" data-mode="history">历史</button>
+                                        <button class="db-history-tab" data-mode="favorites">收藏</button>
+                                    </div>
+                                    <input type="text" class="db-history-search" id="db-history-search" placeholder="搜索 SQL / 连接名...">
+                                    <button class="db-history-clear" id="db-history-clear" title="清空">🗑</button>
+                                    <button class="db-history-close" id="db-history-close" title="关闭 (Esc)">×</button>
+                                </div>
+                                <div class="db-history-list" id="db-history-list"></div>
+                            </div>
+                            <div class="db-history-backdrop" id="db-history-backdrop" hidden></div>
                         </div>
 
                         <div class="db-resize-handle"></div>
@@ -1245,18 +1267,31 @@
                         <div class="db-result-container">
                             <div class="db-result-tabs">
                                 <button class="tab active" data-tab="result">结果</button>
-                                <button class="tab" data-tab="message">消息</button>
+                                <button class="tab" data-tab="message">消息<span class="db-msg-badge" id="db-msg-badge" hidden>0</span></button>
                             </div>
                             <div class="db-result-content" id="db-result-content">
                                 <div class="db-result-placeholder">
                                     执行查询查看结果
                                 </div>
                             </div>
+                            <div class="db-message-content" id="db-message-content" hidden>
+                                <div class="db-message-toolbar">
+                                    <div class="db-message-filters">
+                                        <label><input type="radio" name="msg-filter" value="error" checked> 仅错误</label>
+                                        <label><input type="radio" name="msg-filter" value="all"> 全部</label>
+                                        <label><input type="radio" name="msg-filter" value="warning"> 警告/事件</label>
+                                    </div>
+                                    <div class="db-message-actions">
+                                        <button class="btn-text" id="db-message-copy">复制</button>
+                                        <button class="btn-text" id="db-message-clear">清空</button>
+                                    </div>
+                                </div>
+                                <div class="db-message-list" id="db-message-list"></div>
+                            </div>
                             <div class="db-result-status">
                                 <span id="db-result-info">就绪</span>
                                 <div class="db-export-actions">
-                                    <button class="btn-text" id="db-export-csv">导出 CSV</button>
-                                    <button class="btn-text" id="db-export-json">导出 JSON</button>
+                                    <button class="btn-text" id="db-export-open">⬇ 导出…</button>
                                 </div>
                             </div>
                         </div>
@@ -1272,7 +1307,7 @@
                         <button class="modal-close">&times;</button>
                     </div>
                     <div class="db-editor-toolbar">
-                        <button class="btn btn-primary" id="db-editor-save">💾 保存更改</button>
+                        <span class="db-editor-mode-tag" title="所有改动立即写入数据库">⚡ 即时模式</span>
                         <button class="btn" id="db-editor-add-row">➕ 添加行</button>
                         <button class="btn" id="db-editor-delete-row">🗑️ 删除选中</button>
                         <button class="btn" id="db-editor-refresh">🔄 刷新</button>
@@ -1398,6 +1433,10 @@
                                 <input type="text" name="name" required placeholder="我的数据库">
                             </div>
                             <div class="form-group">
+                                <label>分组（可选）</label>
+                                <input type="text" name="group" placeholder="如: 生产 / 测试 / 客户A">
+                            </div>
+                            <div class="form-group">
                                 <label>数据库类型</label>
                                 <select name="db_type" id="db-type-select">
                                     <option value="mysql">MySQL</option>
@@ -1445,9 +1484,197 @@
                 </div>
             </div>
         </main>
+
+        <!-- 破坏性 SQL 确认弹窗 -->
+        <div class="modal db-confirm-modal" id="db-confirm-modal">
+            <div class="modal-content db-confirm-content">
+                <div class="modal-header db-confirm-header">
+                    <h3>⚠️ 危险操作确认</h3>
+                </div>
+                <div class="modal-body db-confirm-body">
+                    <div class="db-confirm-summary" id="db-confirm-summary"></div>
+                    <pre class="db-confirm-sql" id="db-confirm-sql"></pre>
+                    <div class="db-confirm-prompt">
+                        请输入 <code id="db-confirm-keyword">DROP</code> 以确认执行
+                    </div>
+                    <input type="text" class="db-confirm-input" id="db-confirm-input" autocomplete="off" spellcheck="false">
+                </div>
+                <div class="modal-footer db-confirm-footer">
+                    <button class="btn" id="db-confirm-cancel">取消 (Esc)</button>
+                    <button class="btn btn-danger" id="db-confirm-ok" disabled>执行</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 添加行弹窗（即时模式下使用） -->
+        <div class="modal db-insert-modal" id="db-insert-modal">
+            <div class="modal-content db-insert-content">
+                <div class="modal-header">
+                    <h3 id="db-insert-title">添加新行</h3>
+                    <button class="modal-close" id="db-insert-close">&times;</button>
+                </div>
+                <div class="modal-body db-insert-body" id="db-insert-fields"></div>
+                <div class="modal-footer">
+                    <button class="btn" id="db-insert-cancel">取消</button>
+                    <button class="btn btn-primary" id="db-insert-ok">插入</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 撤销 toast 容器 -->
+        <div class="db-toast-stack" id="db-toast-stack"></div>
+
+        <!-- 导出结果弹窗 -->
+        <div class="modal db-export-modal" id="db-export-modal">
+            <div class="modal-content db-export-content">
+                <div class="modal-header">
+                    <h3>⬇ 导出查询结果</h3>
+                    <button class="modal-close" id="db-export-close">&times;</button>
+                </div>
+                <div class="modal-body db-export-body">
+                    <div class="db-export-row">
+                        <label>格式</label>
+                        <div class="db-export-format-tabs">
+                            <button class="db-export-fmt active" data-fmt="csv">CSV</button>
+                            <button class="db-export-fmt" data-fmt="tsv">TSV</button>
+                            <button class="db-export-fmt" data-fmt="json">JSON</button>
+                            <button class="db-export-fmt" data-fmt="sql">SQL INSERT</button>
+                            <button class="db-export-fmt" data-fmt="markdown">Markdown</button>
+                        </div>
+                    </div>
+
+                    <div class="db-export-row">
+                        <label>范围</label>
+                        <div class="db-export-scope">
+                            <label><input type="radio" name="export-scope" value="all" checked> <span id="db-export-all-label">全部 (0)</span></label>
+                            <label><input type="radio" name="export-scope" value="page"> <span id="db-export-page-label">当前页 (0)</span></label>
+                        </div>
+                    </div>
+
+                    <div class="db-export-row db-export-opts">
+                        <div class="db-export-opt" data-show-for="csv,tsv,markdown">
+                            <label><input type="checkbox" id="db-export-header" checked> 包含列标题</label>
+                        </div>
+                        <div class="db-export-opt" data-show-for="csv">
+                            <label>分隔符
+                                <select id="db-export-delim">
+                                    <option value=",">逗号 (,)</option>
+                                    <option value=";">分号 (;)</option>
+                                    <option value="|">竖线 (|)</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="db-export-opt" data-show-for="csv,tsv">
+                            <label><input type="checkbox" id="db-export-bom"> 添加 UTF-8 BOM（Excel 友好）</label>
+                        </div>
+                        <div class="db-export-opt" data-show-for="csv,tsv,sql,markdown">
+                            <label>NULL 表示
+                                <select id="db-export-null">
+                                    <option value="">空</option>
+                                    <option value="NULL">NULL</option>
+                                    <option value="\\N">\N</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="db-export-opt" data-show-for="json">
+                            <label>结构
+                                <select id="db-export-json-shape">
+                                    <option value="objects">数组 of 对象 [{col:val}]</option>
+                                    <option value="arrays">数组 of 数组 [[v1,v2]]</option>
+                                    <option value="ndjson">NDJSON（每行一个对象）</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="db-export-opt" data-show-for="json">
+                            <label><input type="checkbox" id="db-export-pretty" checked> 格式化（缩进 2）</label>
+                        </div>
+                        <div class="db-export-opt" data-show-for="sql">
+                            <label>目标表名
+                                <input type="text" id="db-export-sql-table" placeholder="e.g. users">
+                            </label>
+                        </div>
+                        <div class="db-export-opt" data-show-for="sql">
+                            <label>每批行数
+                                <input type="number" id="db-export-sql-batch" value="100" min="1" max="1000">
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="db-export-row">
+                        <label>预览（前 10 行）</label>
+                        <pre class="db-export-preview" id="db-export-preview"></pre>
+                    </div>
+                    <div class="db-export-meta" id="db-export-meta"></div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="db-export-cancel">取消</button>
+                    <button class="btn" id="db-export-copy">📋 复制到剪贴板</button>
+                    <button class="btn btn-primary" id="db-export-save">💾 保存到文件</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- CSV 导入向导 -->
+        <div class="modal db-csv-modal" id="db-csv-modal">
+            <div class="modal-content db-csv-content">
+                <div class="modal-header">
+                    <h3>⤵ CSV 导入向导</h3>
+                    <button class="modal-close" id="db-csv-close">&times;</button>
+                </div>
+                <div class="modal-body db-csv-body">
+                    <div class="db-csv-step" id="db-csv-step-options">
+                        <div class="db-csv-file-info" id="db-csv-file-info"></div>
+                        <div class="db-csv-options">
+                            <label>分隔符
+                                <select id="db-csv-delim">
+                                    <option value=",">逗号 (,)</option>
+                                    <option value="\t">Tab</option>
+                                    <option value=";">分号 (;)</option>
+                                    <option value="|">竖线 (|)</option>
+                                </select>
+                            </label>
+                            <label>引号
+                                <select id="db-csv-quote">
+                                    <option value='"'>双引号 (")</option>
+                                    <option value="'">单引号 (')</option>
+                                    <option value="">无</option>
+                                </select>
+                            </label>
+                            <label>
+                                <input type="checkbox" id="db-csv-header" checked> 首行作为表头
+                            </label>
+                        </div>
+                        <div class="db-csv-preview-label">数据预览（前 5 行）</div>
+                        <div class="db-csv-preview" id="db-csv-preview"></div>
+                    </div>
+                    <div class="db-csv-step" id="db-csv-step-mapping" hidden>
+                        <label class="db-csv-target">
+                            目标表：
+                            <select id="db-csv-table"></select>
+                        </label>
+                        <div class="db-csv-mapping-label">列映射</div>
+                        <div class="db-csv-mapping" id="db-csv-mapping"></div>
+                        <label class="db-csv-trunc">
+                            <input type="checkbox" id="db-csv-truncate"> 先清空目标表 (TRUNCATE)
+                        </label>
+                        <label class="db-csv-batch">
+                            批次大小：<input type="number" id="db-csv-batch-size" value="200" min="10" max="2000">
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="db-csv-cancel">取消</button>
+                    <button class="btn" id="db-csv-back" hidden>← 上一步</button>
+                    <button class="btn btn-primary" id="db-csv-next">下一步 →</button>
+                    <button class="btn btn-primary" id="db-csv-import" hidden>导入</button>
+                </div>
+            </div>
+        </div>
     </div>
     <script src="codemirror/codemirror.min.js"></script>
     <script src="codemirror/javascript.min.js"></script>
+    <script src="codemirror/sql.min.js"></script>
+    <script src="codemirror/show-hint.min.js"></script>
     <script src="codemirror/matchbrackets.min.js"></script>
     <script src="codemirror/closebrackets.min.js"></script>
     <script src="codemirror/active-line.min.js"></script>
