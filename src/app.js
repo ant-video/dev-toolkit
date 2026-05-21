@@ -3236,6 +3236,15 @@ async function initDatabaseTool() {
     // 数据库选择器
     document.getElementById('db-database-select')?.addEventListener('change', handleDatabaseChange);
 
+    // 创建表按钮
+    document.getElementById('db-create-table')?.addEventListener('click', () => {
+        if (!dbState.currentConnection || !dbState.currentDatabase) {
+            dbShowStatus('请先连接数据库', 'error');
+            return;
+        }
+        openCreateTableDialog();
+    });
+
     // 弹窗关闭
     document.querySelector('#db-connection-modal .modal-close')?.addEventListener('click', closeConnectionModal);
     document.querySelector('#db-connection-modal .modal-cancel')?.addEventListener('click', closeConnectionModal);
@@ -3788,9 +3797,10 @@ function showTableContextMenu(e, tableName, tableType) {
     menu.innerHTML = `
         <div class="db-menu-item" data-action="select">📄 查看数据</div>
         <div class="db-menu-item" data-action="structure">📋 查看结构</div>
+        ${!isView ? `<div class="db-menu-item" data-action="edit-structure">✏️ 编辑结构</div>` : ''}
         <div class="db-menu-item" data-action="insert">➕ 插入数据</div>
         <div class="db-menu-divider"></div>
-        <div class="db-menu-item" data-action="edit">✏️ 编辑数据</div>
+        <div class="db-menu-item" data-action="edit">🔢 编辑数据</div>
         <div class="db-menu-divider"></div>
         ${!isView ? `<div class="db-menu-item db-menu-danger" data-action="truncate">🗑️ 清空表</div>` : ''}
         ${!isView ? `<div class="db-menu-item db-menu-danger" data-action="drop">❌ 删除表</div>` : ''}
@@ -3828,6 +3838,9 @@ function handleTableAction(action, tableName, tableType) {
             break;
         case 'structure':
             showTableSchema(tableName);
+            break;
+        case 'edit-structure':
+            openSchemaEditor(tableName);
             break;
         case 'insert':
             showInsertDialog(tableName);
@@ -4318,6 +4331,434 @@ function formatSqlValue(value) {
 // 转义 SQL
 function escapeSql(str) {
     return String(str).replace(/'/g, "''");
+}
+
+// ==================== 表结构编辑器 ====================
+
+const schemaEditor = {
+    tableName: null,
+    originalColumns: [],
+    columns: [],
+    changes: [],
+    isNewTable: false,
+};
+
+// 常用数据类型
+const DATA_TYPES = {
+    mysql: ['INT', 'BIGINT', 'SMALLINT', 'TINYINT', 'VARCHAR', 'CHAR', 'TEXT', 'LONGTEXT', 'MEDIUMTEXT', 'DATETIME', 'DATE', 'TIME', 'TIMESTAMP', 'DECIMAL', 'DOUBLE', 'FLOAT', 'BOOLEAN', 'BLOB', 'JSON', 'ENUM'],
+    postgresql: ['INTEGER', 'BIGINT', 'SMALLINT', 'VARCHAR', 'CHAR', 'TEXT', 'DATE', 'TIME', 'TIMESTAMP', 'TIMESTAMPTZ', 'DECIMAL', 'DOUBLE PRECISION', 'REAL', 'BOOLEAN', 'BYTEA', 'JSON', 'JSONB', 'UUID', 'SERIAL', 'BIGSERIAL'],
+    sqlite: ['INTEGER', 'TEXT', 'REAL', 'BLOB', 'NUMERIC', 'BOOLEAN', 'DATE', 'DATETIME']
+};
+
+// 打开表结构编辑器
+async function openSchemaEditor(tableName) {
+    schemaEditor.tableName = tableName;
+    schemaEditor.isNewTable = false;
+    schemaEditor.changes = [];
+
+    try {
+        const schema = await invoke('db_get_table_schema', {
+            connectionId: dbState.currentConnection,
+            database: dbState.currentDatabase,
+            table: tableName,
+        });
+
+        schemaEditor.originalColumns = JSON.parse(JSON.stringify(schema.columns));
+        schemaEditor.columns = schema.columns;
+
+        document.getElementById('db-schema-title').textContent = `编辑结构: ${tableName}`;
+        document.getElementById('db-schema-table-name').value = tableName;
+        document.getElementById('db-schema-table-comment').value = '';
+
+        renderSchemaColumns();
+        initSchemaEditorEvents();
+
+        document.getElementById('db-schema-editor-modal').classList.add('active');
+    } catch (e) {
+        alert('获取表结构失败: ' + e);
+    }
+}
+
+// 打开创建表对话框
+function openCreateTableDialog() {
+    schemaEditor.tableName = '';
+    schemaEditor.isNewTable = true;
+    schemaEditor.columns = [];
+    schemaEditor.originalColumns = [];
+
+    // 添加默认的主键列
+    schemaEditor.columns = [{
+        name: 'id',
+        data_type: 'INT',
+        length: '',
+        nullable: false,
+        default: '',
+        is_primary_key: true,
+        auto_increment: true,
+        comment: '',
+        isNew: true,
+    }];
+
+    document.getElementById('db-create-table-name').value = '';
+    document.getElementById('db-create-table-comment').value = '';
+
+    renderCreateTableColumns();
+    initCreateTableEvents();
+
+    document.getElementById('db-create-table-modal').classList.add('active');
+}
+
+// 渲染表结构列
+function renderSchemaColumns() {
+    const tbody = document.getElementById('db-schema-tbody');
+    const conn = dbState.connections.find(c => c.id === dbState.currentConnection);
+    const dbType = conn ? conn.db_type : 'mysql';
+    const types = DATA_TYPES[dbType] || DATA_TYPES.mysql;
+
+    let html = '';
+    schemaEditor.columns.forEach((col, index) => {
+        const isNewClass = col.isNew ? 'col-new' : '';
+        const deletedClass = col.deleted ? 'col-deleted' : '';
+        const modifiedClass = col.modified ? 'col-modified' : '';
+
+        html += `<tr data-index="${index}" class="${isNewClass} ${deletedClass} ${modifiedClass}">
+            <td class="col-check"><input type="checkbox" class="col-select"></td>
+            <td><input type="text" class="col-name-input" value="${col.name}" data-field="name"></td>
+            <td>
+                <select class="col-type-select" data-field="data_type">
+                    ${types.map(t => `<option value="${t}" ${col.data_type === t ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+            </td>
+            <td><input type="text" class="col-len-input" value="${col.length || ''}" data-field="length"></td>
+            <td><input type="checkbox" ${col.nullable ? 'checked' : ''} data-field="nullable"></td>
+            <td><input type="text" class="col-default-input" value="${col.default || ''}" data-field="default"></td>
+            <td><input type="checkbox" ${col.is_primary_key ? 'checked' : ''} data-field="is_primary_key"></td>
+            <td><input type="checkbox" ${col.auto_increment ? 'checked' : ''} data-field="auto_increment"></td>
+            <td><input type="text" class="col-comment-input" value="${col.comment || ''}" data-field="comment"></td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+
+    // 绑定变更事件
+    tbody.querySelectorAll('input, select').forEach(el => {
+        el.addEventListener('change', () => {
+            const row = el.closest('tr');
+            const index = parseInt(row.dataset.index);
+            const field = el.dataset.field;
+            let value;
+
+            if (el.type === 'checkbox') {
+                value = el.checked;
+            } else {
+                value = el.value;
+            }
+
+            // 标记为修改
+            schemaEditor.columns[index][field] = value;
+            if (!schemaEditor.columns[index].isNew) {
+                schemaEditor.columns[index].modified = true;
+                row.classList.add('col-modified');
+            }
+        });
+    });
+
+    updateSchemaStatus();
+}
+
+// 渲染创建表列
+function renderCreateTableColumns() {
+    const tbody = document.getElementById('db-create-tbody');
+    const conn = dbState.connections.find(c => c.id === dbState.currentConnection);
+    const dbType = conn ? conn.db_type : 'mysql';
+    const types = DATA_TYPES[dbType] || DATA_TYPES.mysql;
+
+    let html = '';
+    schemaEditor.columns.forEach((col, index) => {
+        html += `<tr data-index="${index}" class="col-new">
+            <td class="col-check"><button class="btn-icon" onclick="schemaEditorRemoveColumn(${index})">×</button></td>
+            <td><input type="text" class="col-name-input" value="${col.name}" data-field="name" placeholder="列名"></td>
+            <td>
+                <select class="col-type-select" data-field="data_type">
+                    ${types.map(t => `<option value="${t}" ${col.data_type === t ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+            </td>
+            <td><input type="text" class="col-len-input" value="${col.length || ''}" data-field="length"></td>
+            <td><input type="checkbox" ${col.nullable ? 'checked' : ''} data-field="nullable"></td>
+            <td><input type="text" class="col-default-input" value="${col.default || ''}" data-field="default"></td>
+            <td><input type="checkbox" ${col.is_primary_key ? 'checked' : ''} data-field="is_primary_key"></td>
+            <td><input type="checkbox" ${col.auto_increment ? 'checked' : ''} data-field="auto_increment"></td>
+            <td><input type="text" class="col-comment-input" value="${col.comment || ''}" data-field="comment"></td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+
+    // 绑定变更事件
+    tbody.querySelectorAll('input, select').forEach(el => {
+        el.addEventListener('change', () => {
+            const row = el.closest('tr');
+            const index = parseInt(row.dataset.index);
+            const field = el.dataset.field;
+            let value;
+
+            if (el.type === 'checkbox') {
+                value = el.checked;
+            } else {
+                value = el.value;
+            }
+
+            schemaEditor.columns[index][field] = value;
+        });
+    });
+}
+
+// 删除列（创建表时）
+function schemaEditorRemoveColumn(index) {
+    schemaEditor.columns.splice(index, 1);
+    renderCreateTableColumns();
+}
+
+// 初始化结构编辑器事件
+function initSchemaEditorEvents() {
+    // 关闭
+    document.querySelector('#db-schema-editor-modal .modal-close').onclick = () => {
+        if (schemaEditor.changes.length > 0 || schemaEditor.columns.some(c => c.modified || c.isNew || c.deleted)) {
+            if (!confirm('有未保存的更改，确定关闭吗？')) return;
+        }
+        document.getElementById('db-schema-editor-modal').classList.remove('active');
+    };
+
+    // 添加列
+    document.getElementById('db-schema-add-col').onclick = () => {
+        schemaEditor.columns.push({
+            name: '',
+            data_type: 'VARCHAR',
+            length: '255',
+            nullable: true,
+            default: '',
+            is_primary_key: false,
+            auto_increment: false,
+            comment: '',
+            isNew: true,
+        });
+        renderSchemaColumns();
+    };
+
+    // 删除选中列
+    document.getElementById('db-schema-del-col').onclick = () => {
+        const selected = document.querySelectorAll('#db-schema-tbody .col-select:checked');
+        selected.forEach(cb => {
+            const row = cb.closest('tr');
+            const index = parseInt(row.dataset.index);
+            if (schemaEditor.columns[index].isNew) {
+                // 新列直接删除
+                schemaEditor.columns.splice(index, 1);
+            } else {
+                // 已存在列标记删除
+                schemaEditor.columns[index].deleted = true;
+            }
+        });
+        renderSchemaColumns();
+    };
+
+    // 保存
+    document.getElementById('db-schema-save').onclick = saveSchemaChanges;
+
+    // 全选
+    document.getElementById('schema-select-all').onchange = (e) => {
+        document.querySelectorAll('#db-schema-tbody .col-select').forEach(cb => {
+            cb.checked = e.target.checked;
+        });
+    };
+}
+
+// 初始化创建表事件
+function initCreateTableEvents() {
+    // 关闭
+    document.querySelector('#db-create-table-modal .modal-close').onclick = () => {
+        document.getElementById('db-create-table-modal').classList.remove('active');
+    };
+
+    // 添加列
+    document.getElementById('db-create-add-col').onclick = () => {
+        schemaEditor.columns.push({
+            name: '',
+            data_type: 'VARCHAR',
+            length: '255',
+            nullable: true,
+            default: '',
+            is_primary_key: false,
+            auto_increment: false,
+            comment: '',
+            isNew: true,
+        });
+        renderCreateTableColumns();
+    };
+
+    // 创建表
+    document.getElementById('db-create-table-submit').onclick = createNewTable;
+}
+
+// 保存结构更改
+async function saveSchemaChanges() {
+    const statusEl = document.getElementById('db-schema-status');
+    statusEl.textContent = '保存中...';
+
+    try {
+        let sqls = [];
+        const tableName = schemaEditor.tableName;
+        const conn = dbState.connections.find(c => c.id === dbState.currentConnection);
+        const dbType = conn ? conn.db_type : 'mysql';
+
+        // 处理删除的列
+        schemaEditor.columns.filter(c => c.deleted).forEach(col => {
+            sqls.push(`ALTER TABLE \`${tableName}\` DROP COLUMN \`${col.name}\`;`);
+        });
+
+        // 处理新增列
+        schemaEditor.columns.filter(c => c.isNew && !c.deleted).forEach(col => {
+            let colDef = buildColumnDefinition(col, dbType);
+            sqls.push(`ALTER TABLE \`${tableName}\` ADD COLUMN \`${col.name}\` ${colDef};`);
+        });
+
+        // 处理修改列
+        schemaEditor.columns.filter(c => c.modified && !c.deleted && !c.isNew).forEach(col => {
+            let colDef = buildColumnDefinition(col, dbType);
+            if (dbType === 'mysql') {
+                sqls.push(`ALTER TABLE \`${tableName}\` MODIFY COLUMN \`${col.name}\` ${colDef};`);
+            } else if (dbType === 'postgresql') {
+                // PostgreSQL 需要分开处理
+                sqls.push(`ALTER TABLE \`${tableName}\` ALTER COLUMN \`${col.name}\` TYPE ${col.data_type};`);
+            }
+        });
+
+        if (sqls.length === 0) {
+            statusEl.textContent = '没有需要保存的更改';
+            return;
+        }
+
+        // 执行 SQL
+        for (const sql of sqls) {
+            await invoke('db_execute', {
+                connectionId: dbState.currentConnection,
+                sql,
+                database: dbState.currentDatabase,
+            });
+        }
+
+        statusEl.textContent = `已保存 ${sqls.length} 条更改`;
+        schemaEditor.changes = [];
+        schemaEditor.originalColumns = JSON.parse(JSON.stringify(schemaEditor.columns.filter(c => !c.deleted)));
+
+        // 刷新表列表
+        await loadTables();
+
+        setTimeout(() => {
+            document.getElementById('db-schema-editor-modal').classList.remove('active');
+        }, 1000);
+    } catch (e) {
+        statusEl.textContent = '保存失败: ' + e;
+    }
+}
+
+// 创建新表
+async function createNewTable() {
+    const tableName = document.getElementById('db-create-table-name').value.trim();
+    const tableComment = document.getElementById('db-create-table-comment').value.trim();
+    const statusEl = document.getElementById('db-create-status');
+
+    if (!tableName) {
+        statusEl.textContent = '请输入表名';
+        return;
+    }
+
+    if (schemaEditor.columns.length === 0) {
+        statusEl.textContent = '请至少添加一列';
+        return;
+    }
+
+    statusEl.textContent = '创建中...';
+
+    try {
+        const conn = dbState.connections.find(c => c.id === dbState.currentConnection);
+        const dbType = conn ? conn.db_type : 'mysql';
+
+        // 构建 CREATE TABLE SQL
+        let columnsDef = schemaEditor.columns.filter(c => c.name.trim()).map(col => {
+            let def = `\`${col.name}\` ${buildColumnDefinition(col, dbType)}`;
+            return def;
+        }).join(',\n    ');
+
+        // 添加主键约束
+        const pkColumns = schemaEditor.columns.filter(c => c.is_primary_key && c.name.trim());
+        if (pkColumns.length > 0) {
+            columnsDef += ',\n    PRIMARY KEY (' + pkColumns.map(c => `\`${c.name}\``).join(', ') + ')';
+        }
+
+        let sql = `CREATE TABLE \`${tableName}\` (\n    ${columnsDef}\n)`;
+
+        if (dbType === 'mysql' && tableComment) {
+            sql += ` COMMENT='${escapeSql(tableComment)}'`;
+        }
+
+        sql += ';';
+
+        await invoke('db_execute', {
+            connectionId: dbState.currentConnection,
+            sql,
+            database: dbState.currentDatabase,
+        });
+
+        statusEl.textContent = '表创建成功';
+        await loadTables();
+
+        setTimeout(() => {
+            document.getElementById('db-create-table-modal').classList.remove('active');
+        }, 1000);
+    } catch (e) {
+        statusEl.textContent = '创建失败: ' + e;
+    }
+}
+
+// 构建列定义
+function buildColumnDefinition(col, dbType) {
+    let def = col.data_type;
+
+    // 添加长度
+    if (col.length && ['VARCHAR', 'CHAR', 'DECIMAL', 'INT', 'BIGINT', 'FLOAT', 'DOUBLE'].includes(col.data_type.toUpperCase())) {
+        def += `(${col.length})`;
+    }
+
+    // NULL/NOT NULL
+    def += col.nullable ? ' NULL' : ' NOT NULL';
+
+    // 默认值
+    if (col.default) {
+        def += ` DEFAULT ${formatSqlValue(col.default)}`;
+    }
+
+    // 自增 (MySQL)
+    if (col.auto_increment && dbType === 'mysql') {
+        def += ' AUTO_INCREMENT';
+    }
+
+    // 注释 (MySQL)
+    if (col.comment && dbType === 'mysql') {
+        def += ` COMMENT '${escapeSql(col.comment)}'`;
+    }
+
+    return def;
+}
+
+// 更新结构状态
+function updateSchemaStatus() {
+    const newCount = schemaEditor.columns.filter(c => c.isNew && !c.deleted).length;
+    const modCount = schemaEditor.columns.filter(c => c.modified && !c.deleted).length;
+    const delCount = schemaEditor.columns.filter(c => c.deleted).length;
+
+    const statusEl = document.getElementById('db-schema-status');
+    statusEl.textContent = `新增 ${newCount} 列，修改 ${modCount} 列，删除 ${delCount} 列`;
 }
 
 // 执行查询
