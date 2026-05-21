@@ -1960,6 +1960,217 @@ let _httpFolders = [];
 let _httpActiveFolder = null; // null = 显示全部，folder id = 选中某文件夹
 let _httpEnvVars = {};
 
+// ===== 多 Tab 请求管理 =====
+let _reqTabs = [];
+let _reqActiveTabId = null;
+
+function _genTabId() {
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+
+function createTabState() {
+    return {
+        id: _genTabId(),
+        method: 'GET', url: '',
+        params: [],
+        headers: [{ key: 'Content-Type', value: 'application/json', checked: true }],
+        bodyType: 'json', body: '',
+        formdata: [],
+        authType: 'none',
+        authBearer: '', authBasicUser: '', authBasicPass: '',
+        authApiKeyName: 'X-API-Key', authApiKeyValue: '', authApiKeyLoc: 'header',
+        timeout: 30,
+        hasResponse: false,
+        responseStatusHtml: '',
+        responseBodyText: '',
+        responseRawText: '',
+        responseHeadersHtml: '',
+        responseSizeWarning: false, responseSizeText: '',
+        responseIsImage: false, responseImageSrc: '', responseImageInfo: '',
+        fullResponseBody: '',
+    };
+}
+
+function getKvRowData(containerId) {
+    const rows = [];
+    document.getElementById(containerId).querySelectorAll('.kv-row').forEach(row => {
+        rows.push({ key: row.querySelector('.kv-key').value, value: row.querySelector('.kv-value').value });
+    });
+    return rows;
+}
+
+function setKvRowData(containerId, rows) {
+    const container = document.getElementById(containerId);
+    container.innerHTML = '';
+    if (!rows || rows.length === 0) { addKvRow(containerId); return; }
+    rows.forEach(r => addKvRow(containerId, r.key || '', r.value || ''));
+}
+
+function getHeaderRowData() {
+    const rows = [];
+    document.getElementById('http-headers-kv').querySelectorAll('.kv-row').forEach(row => {
+        const cb = row.querySelector('.kv-check');
+        rows.push({ key: row.querySelector('.kv-key').value, value: row.querySelector('.kv-value').value, checked: cb ? cb.checked : true });
+    });
+    return rows;
+}
+
+function setHeaderRowData(rows) {
+    const container = document.getElementById('http-headers-kv');
+    container.innerHTML = '';
+    if (!rows || rows.length === 0) { addHeaderRow(); return; }
+    rows.forEach(r => addHeaderRow(r.key || '', r.value || '', r.checked !== false));
+}
+
+function saveCurrentTabState() {
+    if (!_reqActiveTabId) return;
+    const tab = _reqTabs.find(t => t.id === _reqActiveTabId);
+    if (!tab) return;
+    tab.method = document.getElementById('http-method').value;
+    tab.url = document.getElementById('http-url').value;
+    tab.timeout = parseInt(document.getElementById('http-timeout').value, 10) || 30;
+    tab.bodyType = document.getElementById('http-body-type').value;
+    tab.body = editors.httpBody ? editors.httpBody.getValue() : '';
+    tab.params = getKvRowData('http-params-kv');
+    tab.headers = getHeaderRowData();
+    tab.formdata = getKvRowData('http-formdata-kv');
+    tab.authType = document.getElementById('http-auth-type').value;
+    tab.authBearer = document.getElementById('http-auth-bearer-token').value;
+    tab.authBasicUser = document.getElementById('http-auth-basic-user').value;
+    tab.authBasicPass = document.getElementById('http-auth-basic-pass').value;
+    tab.authApiKeyName = document.getElementById('http-auth-apikey-name').value;
+    tab.authApiKeyValue = document.getElementById('http-auth-apikey-value').value;
+    tab.authApiKeyLoc = document.getElementById('http-auth-apikey-loc').value;
+    tab.hasResponse = document.getElementById('http-response-section').style.display !== 'none';
+    tab.responseStatusHtml = document.getElementById('http-response-status').innerHTML;
+    tab.responseBodyText = editors.httpResponseBody ? editors.httpResponseBody.getValue() : '';
+    tab.responseRawText = editors.httpResponseRaw ? editors.httpResponseRaw.getValue() : '';
+    tab.responseHeadersHtml = document.getElementById('http-response-headers-grid').innerHTML;
+    tab.responseSizeWarning = document.getElementById('http-response-size-warning').style.display !== 'none';
+    tab.responseSizeText = document.getElementById('http-response-size-text').textContent;
+    tab.responseIsImage = document.getElementById('http-response-image-wrap').style.display !== 'none';
+    tab.responseImageSrc = document.getElementById('http-response-image').src;
+    tab.responseImageInfo = document.getElementById('http-response-image-info').textContent;
+    tab.fullResponseBody = _httpFullResponseBody;
+}
+
+function restoreTabState(tab) {
+    _httpParamsSyncing = true;
+    try {
+        document.getElementById('http-method').value = tab.method;
+        updateHttpMethodColor();
+        document.getElementById('http-url').value = tab.url;
+        document.getElementById('http-timeout').value = tab.timeout;
+        document.getElementById('http-body-type').value = tab.bodyType;
+        setKvRowData('http-params-kv', tab.params);
+        setHeaderRowData(tab.headers);
+        setKvRowData('http-formdata-kv', tab.formdata);
+        toggleHttpBodyEditor();
+        if (editors.httpBody) {
+            editors.httpBody.setValue(tab.body || '');
+            setTimeout(() => editors.httpBody && editors.httpBody.refresh(), 30);
+        }
+        document.getElementById('http-auth-type').value = tab.authType;
+        toggleHttpAuthPanel();
+        document.getElementById('http-auth-bearer-token').value = tab.authBearer || '';
+        document.getElementById('http-auth-basic-user').value = tab.authBasicUser || '';
+        document.getElementById('http-auth-basic-pass').value = tab.authBasicPass || '';
+        document.getElementById('http-auth-apikey-name').value = tab.authApiKeyName || 'X-API-Key';
+        document.getElementById('http-auth-apikey-value').value = tab.authApiKeyValue || '';
+        document.getElementById('http-auth-apikey-loc').value = tab.authApiKeyLoc || 'header';
+    } finally { _httpParamsSyncing = false; }
+
+    _httpFullResponseBody = tab.fullResponseBody || '';
+    document.getElementById('http-response-size-warning').style.display = tab.responseSizeWarning ? 'flex' : 'none';
+    document.getElementById('http-response-size-text').textContent = tab.responseSizeText || '';
+
+    if (tab.hasResponse) {
+        document.getElementById('http-response-section').style.display = 'block';
+        document.getElementById('http-response-placeholder').style.display = 'none';
+        document.getElementById('http-response-status').innerHTML = tab.responseStatusHtml || '';
+        if (tab.responseIsImage) {
+            document.getElementById('http-response-image-wrap').style.display = 'flex';
+            document.getElementById('http-response-body-editor').style.display = 'none';
+            document.getElementById('http-response-image').src = tab.responseImageSrc || '';
+            document.getElementById('http-response-image-info').textContent = tab.responseImageInfo || '';
+        } else {
+            document.getElementById('http-response-image-wrap').style.display = 'none';
+            document.getElementById('http-response-body-editor').style.display = 'block';
+            if (editors.httpResponseBody) editors.httpResponseBody.setValue(tab.responseBodyText || '');
+            if (editors.httpResponseRaw) editors.httpResponseRaw.setValue(tab.responseRawText || '');
+        }
+        document.getElementById('http-response-headers-grid').innerHTML = tab.responseHeadersHtml || '';
+    } else {
+        document.getElementById('http-response-section').style.display = 'none';
+        document.getElementById('http-response-placeholder').style.display = 'block';
+    }
+
+    closeHttpResponseSearch();
+    syncFloatTitle();
+}
+
+const _reqMethodColors = { GET:'#00d68f', POST:'#ff9f43', PUT:'#448aff', DELETE:'#ff6b6b', PATCH:'#a855f7', HEAD:'#6c5ce7', OPTIONS:'#8b8fa3' };
+
+function _getReqTabLabel(tab) {
+    if (!tab.url) return 'New Request';
+    const url = tab.url.replace(/\{\{[^}]+\}\}/g, '…');
+    try {
+        const u = new URL(url.startsWith('http') ? url : 'https://' + url);
+        const path = u.pathname === '/' ? '' : u.pathname.slice(0, 12);
+        return (u.hostname + path).replace('www.', '');
+    } catch(e) { return tab.url.slice(0, 22); }
+}
+
+function renderReqTabs() {
+    const container = document.getElementById('http-req-tabs-container');
+    if (!container) return;
+    const canClose = _reqTabs.length > 1;
+    container.innerHTML = _reqTabs.map(tab => {
+        const isActive = tab.id === _reqActiveTabId;
+        const color = _reqMethodColors[tab.method] || '#e4e6f0';
+        const label = escapeHtml(_getReqTabLabel(tab));
+        return '<div class="http-req-tab' + (isActive ? ' active' : '') + '" onclick="switchReqTab(\'' + tab.id + '\')">' +
+            '<span class="http-req-tab-method" style="color:' + color + '">' + tab.method + '</span>' +
+            '<span class="http-req-tab-label">' + label + '</span>' +
+            (canClose ? '<button class="http-req-tab-close" onclick="event.stopPropagation();closeReqTab(\'' + tab.id + '\')">✕</button>' : '') +
+            '</div>';
+    }).join('');
+    const activeEl = container.querySelector('.http-req-tab.active');
+    if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function addReqTab() {
+    saveCurrentTabState();
+    const tab = createTabState();
+    _reqTabs.push(tab);
+    _reqActiveTabId = tab.id;
+    restoreTabState(tab);
+    renderReqTabs();
+}
+
+function closeReqTab(id) {
+    if (_reqTabs.length <= 1) return;
+    const idx = _reqTabs.findIndex(t => t.id === id);
+    if (idx < 0) return;
+    if (_reqActiveTabId === id) saveCurrentTabState();
+    _reqTabs.splice(idx, 1);
+    if (_reqActiveTabId === id) {
+        const newIdx = Math.min(idx, _reqTabs.length - 1);
+        _reqActiveTabId = _reqTabs[newIdx].id;
+        restoreTabState(_reqTabs[newIdx]);
+    }
+    renderReqTabs();
+}
+
+function switchReqTab(id) {
+    if (id === _reqActiveTabId) return;
+    saveCurrentTabState();
+    _reqActiveTabId = id;
+    const tab = _reqTabs.find(t => t.id === id);
+    if (tab) restoreTabState(tab);
+    renderReqTabs();
+}
+
 function loadHttpEnv() {
     try {
         const saved = localStorage.getItem('http.env_vars');
@@ -2277,6 +2488,23 @@ document.getElementById('http-params-kv').addEventListener('input', syncParamsTo
     } catch(e) {}
     loadHttpEnv();
 })();
+
+// 初始化第一个请求 Tab
+(function initReqTabs() {
+    const tab = createTabState();
+    _reqTabs = [tab];
+    _reqActiveTabId = tab.id;
+    renderReqTabs();
+})();
+
+// ⌘T / Ctrl+T 新建 Tab（仅 HTTP 页面激活时）
+document.addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 't' &&
+        document.getElementById('page-http-client').classList.contains('active')) {
+        e.preventDefault();
+        addReqTab();
+    }
+});
 
 function switchHttpPanelMode(mode) {
     _httpActiveFolder = null;
@@ -3199,6 +3427,7 @@ async function sendHttpRequest() {
     } finally {
         btn.disabled = false;
         btn.textContent = '发送';
+        renderReqTabs();
     }
 }
 
