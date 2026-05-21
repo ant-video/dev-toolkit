@@ -114,7 +114,31 @@ pub async fn execute_query(
                 .map(|row| {
                     row.columns()
                         .iter()
-                        .map(|col| row.try_get::<Option<String>, _>(col.name()).ok().flatten())
+                        .map(|col| {
+                            let col_name = col.name();
+                            if let Ok(Some(v)) = row.try_get::<Option<String>, _>(col_name) {
+                                return Some(v);
+                            }
+                            if let Ok(Some(v)) = row.try_get::<Option<i64>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            if let Ok(Some(v)) = row.try_get::<Option<i32>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            if let Ok(Some(v)) = row.try_get::<Option<f64>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            if let Ok(Some(v)) = row.try_get::<Option<bool>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            if let Ok(Some(v)) = row.try_get::<Option<Vec<u8>>, _>(col_name) {
+                                return Some(format!("0x{}", hex::encode(&v)));
+                            }
+                            if let Ok(None) = row.try_get::<Option<String>, _>(col_name) {
+                                return None;
+                            }
+                            Some("[BINARY]".to_string())
+                        })
                         .collect()
                 })
                 .collect();

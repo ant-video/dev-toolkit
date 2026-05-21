@@ -189,7 +189,70 @@ pub async fn execute_query(
                 .map(|row| {
                     row.columns()
                         .iter()
-                        .map(|col| row.try_get::<Option<String>, _>(col.name()).ok().flatten())
+                        .map(|col| {
+                            // 尝试多种类型获取值
+                            let col_name = col.name();
+
+                            // 先尝试 String
+                            if let Ok(Some(v)) = row.try_get::<Option<String>, _>(col_name) {
+                                return Some(v);
+                            }
+                            // 尝试 i64
+                            if let Ok(Some(v)) = row.try_get::<Option<i64>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 u64
+                            if let Ok(Some(v)) = row.try_get::<Option<u64>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 i32
+                            if let Ok(Some(v)) = row.try_get::<Option<i32>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 u32
+                            if let Ok(Some(v)) = row.try_get::<Option<u32>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 f64
+                            if let Ok(Some(v)) = row.try_get::<Option<f64>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 f32
+                            if let Ok(Some(v)) = row.try_get::<Option<f32>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 bool
+                            if let Ok(Some(v)) = row.try_get::<Option<bool>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 Vec<u8> (binary/blob)
+                            if let Ok(Some(v)) = row.try_get::<Option<Vec<u8>>, _>(col_name) {
+                                // 转换为 hex
+                                return Some(format!("0x{}", hex::encode(&v)));
+                            }
+                            // 尝试 chrono::DateTime
+                            if let Ok(Some(v)) = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 chrono::NaiveDateTime
+                            if let Ok(Some(v)) = row.try_get::<Option<chrono::NaiveDateTime>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 chrono::NaiveDate
+                            if let Ok(Some(v)) = row.try_get::<Option<chrono::NaiveDate>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 尝试 chrono::NaiveTime
+                            if let Ok(Some(v)) = row.try_get::<Option<chrono::NaiveTime>, _>(col_name) {
+                                return Some(v.to_string());
+                            }
+                            // 最后检查是否为 NULL
+                            if let Ok(None) = row.try_get::<Option<String>, _>(col_name) {
+                                return None;
+                            }
+                            // 无法解析，返回 [BINARY]
+                            Some("[BINARY]".to_string())
+                        })
                         .collect()
                 })
                 .collect();
