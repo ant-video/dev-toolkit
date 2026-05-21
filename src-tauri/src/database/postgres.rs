@@ -93,7 +93,8 @@ pub async fn get_table_schema(
     table: &str,
 ) -> Result<TableSchema, String> {
     let query = r#"
-        SELECT column_name, data_type, is_nullable, column_default
+        SELECT column_name, data_type, character_maximum_length,
+               numeric_precision, numeric_scale, is_nullable, column_default
         FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = $2
         ORDER BY ordinal_position
@@ -108,13 +109,37 @@ pub async fn get_table_schema(
 
     let columns: Vec<ColumnSchema> = rows
         .iter()
-        .map(|row| ColumnSchema {
-            name: row.get(0),
-            data_type: row.get(1),
-            nullable: row.get::<String, _>(2) == "YES",
-            default: row.get(3),
-            is_primary_key: false, // 需要额外查询
-            comment: None,
+        .map(|row| {
+            let char_len: Option<i64> = row.try_get::<Option<i64>, _>(2).ok().flatten();
+            let num_prec: Option<i64> = row.try_get::<Option<i64>, _>(3).ok().flatten();
+            let num_scale: Option<i64> = row.try_get::<Option<i64>, _>(4).ok().flatten();
+
+            let length = if let Some(len) = char_len {
+                Some(len.to_string())
+            } else if let Some(prec) = num_prec {
+                if let Some(scale) = num_scale {
+                    if scale > 0 {
+                        Some(format!("{},{}", prec, scale))
+                    } else {
+                        Some(prec.to_string())
+                    }
+                } else {
+                    Some(prec.to_string())
+                }
+            } else {
+                None
+            };
+
+            ColumnSchema {
+                name: row.get(0),
+                data_type: row.get::<String, _>(1).to_uppercase(),
+                length,
+                nullable: row.get::<String, _>(5) == "YES",
+                default: row.try_get::<Option<String>, _>(6).ok().flatten(),
+                is_primary_key: false,
+                auto_increment: false,
+                comment: None,
+            }
         })
         .collect();
 

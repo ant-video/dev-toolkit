@@ -107,7 +107,9 @@ pub async fn get_table_schema(
     table: &str,
 ) -> Result<TableSchema, String> {
     let query = r#"
-        SELECT COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT, COLUMN_KEY, COLUMN_COMMENT
+        SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, CHARACTER_MAXIMUM_LENGTH,
+               NUMERIC_PRECISION, NUMERIC_SCALE, IS_NULLABLE, COLUMN_DEFAULT,
+               COLUMN_KEY, EXTRA, COLUMN_COMMENT
         FROM information_schema.COLUMNS
         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
         ORDER BY ORDINAL_POSITION
@@ -122,13 +124,27 @@ pub async fn get_table_schema(
 
     let columns: Vec<ColumnSchema> = rows
         .iter()
-        .map(|row| ColumnSchema {
-            name: row.get(0),
-            data_type: row.get(1),
-            nullable: row.get::<String, _>(2) == "YES",
-            default: row.get(3),
-            is_primary_key: row.get::<String, _>(4) == "PRI",
-            comment: Some(row.get(5)).filter(|s: &String| !s.is_empty()),
+        .map(|row| {
+            let data_type: String = row.get::<String, _>(1); // DATA_TYPE: varchar, int, bigint...
+            let column_type: String = row.get::<String, _>(2); // COLUMN_TYPE: varchar(255), int(11)...
+            let char_max_len: Option<i64> = row.try_get::<Option<i64>, _>(3).ok().flatten();
+            let num_precision: Option<i64> = row.try_get::<Option<i64>, _>(4).ok().flatten();
+            let num_scale: Option<i64> = row.try_get::<Option<i64>, _>(5).ok().flatten();
+            let extra: String = row.try_get::<String, _>(9).unwrap_or_default();
+
+            // 从 COLUMN_TYPE 提取长度信息
+            let length = extract_length(&column_type, char_max_len, num_precision, num_scale);
+
+            ColumnSchema {
+                name: row.get(0),
+                data_type: data_type.to_uppercase(),
+                length,
+                nullable: row.get::<String, _>(6) == "YES",
+                default: row.try_get::<Option<String>, _>(7).ok().flatten(),
+                is_primary_key: row.get::<String, _>(8) == "PRI",
+                auto_increment: extra.contains("auto_increment"),
+                comment: Some(row.get(10)).filter(|s: &String| !s.is_empty()),
+            }
         })
         .collect();
 
@@ -136,6 +152,33 @@ pub async fn get_table_schema(
         name: table.to_string(),
         columns,
     })
+}
+
+/// 从 COLUMN_TYPE 提取长度信息
+fn extract_length(column_type: &str, char_len: Option<i64>, num_precision: Option<i64>, num_scale: Option<i64>) -> Option<String> {
+    // 尝试从括号中提取，如 varchar(255), decimal(10,2)
+    if let Some(start) = column_type.find('(') {
+        if let Some(end) = column_type.find(')') {
+            return Some(column_type[start + 1..end].to_string());
+        }
+    }
+
+    // 字符类型
+    if let Some(len) = char_len {
+        return Some(len.to_string());
+    }
+
+    // 数值类型
+    if let Some(prec) = num_precision {
+        if let Some(scale) = num_scale {
+            if scale > 0 {
+                return Some(format!("{},{}", prec, scale));
+            }
+        }
+        return Some(prec.to_string());
+    }
+
+    None
 }
 
 /// 执行查询

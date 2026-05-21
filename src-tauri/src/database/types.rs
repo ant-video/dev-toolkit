@@ -113,13 +113,15 @@ pub struct TableSchema {
 }
 
 /// 列结构
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct ColumnSchema {
     pub name: String,
     pub data_type: String,
+    pub length: Option<String>,
     pub nullable: bool,
     pub default: Option<String>,
     pub is_primary_key: bool,
+    pub auto_increment: bool,
     pub comment: Option<String>,
 }
 

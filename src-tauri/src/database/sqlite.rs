@@ -60,13 +60,21 @@ pub async fn get_table_schema(
 
     let columns: Vec<ColumnSchema> = rows
         .iter()
-        .map(|row| ColumnSchema {
-            name: row.get(1),
-            data_type: row.get(2),
-            nullable: row.get::<i32, _>(3) == 0,
-            default: row.get(4),
-            is_primary_key: row.get::<i32, _>(5) == 1,
-            comment: None,
+        .map(|row| {
+            let type_str: String = row.get(2);
+            // 解析类型和长度，如 VARCHAR(255) -> (VARCHAR, 255)
+            let (data_type, length) = parse_sqlite_type(&type_str);
+
+            ColumnSchema {
+                name: row.get(1),
+                data_type,
+                length,
+                nullable: row.get::<i32, _>(3) == 0,
+                default: row.try_get::<Option<String>, _>(4).ok().flatten(),
+                is_primary_key: row.get::<i32, _>(5) == 1,
+                auto_increment: false, // SQLite 的自增通过 INTEGER PRIMARY KEY 隐式实现
+                comment: None,
+            }
         })
         .collect();
 
@@ -74,6 +82,19 @@ pub async fn get_table_schema(
         name: table.to_string(),
         columns,
     })
+}
+
+/// 解析 SQLite 类型字符串
+fn parse_sqlite_type(type_str: &str) -> (String, Option<String>) {
+    let upper = type_str.to_uppercase();
+    if let Some(start) = upper.find('(') {
+        if let Some(end) = upper.find(')') {
+            let base_type = upper[..start].to_string();
+            let len = upper[start + 1..end].to_string();
+            return (base_type, Some(len));
+        }
+    }
+    (upper, None)
 }
 
 /// 执行查询
