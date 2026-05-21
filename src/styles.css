@@ -1616,7 +1616,106 @@ body {
 }
 
 .http-action-separator {
-    flex: 1;
+    width: 1px;
+    height: 16px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+
+.http-timeout-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.http-timeout-input {
+    width: 48px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 2px 6px;
+    text-align: center;
+}
+
+.http-timeout-input:focus { outline: none; border-color: var(--accent); }
+.http-timeout-input::-webkit-inner-spin-button { opacity: 0.5; }
+
+.http-timeout-unit {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+/* Auth Tab */
+.http-auth-type-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.http-auth-type-row label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.http-auth-panel { padding: 4px 0; }
+
+.http-auth-panel label {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin: 10px 0 4px;
+}
+
+.http-auth-panel label:first-child { margin-top: 0; }
+
+.http-auth-hint {
+    color: var(--text-secondary);
+    font-size: 11px;
+    margin: 8px 0 0;
+    font-style: italic;
+}
+
+/* 大响应警告 */
+.http-size-warning {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(255, 159, 67, 0.1);
+    border: 1px solid var(--warning, #ff9f43);
+    border-radius: 4px;
+    padding: 6px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    color: var(--warning, #ff9f43);
+}
+
+/* 图片响应预览 */
+.http-image-preview-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    gap: 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    min-height: 100px;
+}
+
+.http-image-preview {
+    max-width: 100%;
+    max-height: 400px;
+    object-fit: contain;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+}
+
+.http-image-info {
+    color: var(--text-secondary);
+    font-size: 11px;
 }
 
 /* HTTP 布局容器 */
@@ -2128,6 +2227,24 @@ body {
     padding: 8px 16px;
     border-bottom: 1px solid var(--border);
 }
+
+.http-panel-search-wrap {
+    padding: 8px 12px 4px;
+    border-bottom: 1px solid var(--border);
+}
+
+.http-panel-search {
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 5px 10px;
+    box-sizing: border-box;
+}
+
+.http-panel-search:focus { outline: none; border-color: var(--accent); }
 
 .http-panel-tabs {
     display: flex;

@@ -1958,6 +1958,62 @@ let _httpPanelMode = '';
 let _httpParamsSyncing = false;
 let _httpFolders = [];
 let _httpActiveFolder = null; // null = 显示全部，folder id = 选中某文件夹
+let _httpEnvVars = {};
+
+function loadHttpEnv() {
+    try {
+        const saved = localStorage.getItem('http.env_vars');
+        if (saved) _httpEnvVars = JSON.parse(saved) || {};
+    } catch(e) { _httpEnvVars = {}; }
+}
+
+function saveHttpEnv() {
+    const pairs = {};
+    document.getElementById('http-env-kv').querySelectorAll('.kv-row').forEach(row => {
+        const k = row.querySelector('.kv-key').value.trim();
+        const v = row.querySelector('.kv-value').value;
+        if (k) pairs[k] = v;
+    });
+    _httpEnvVars = pairs;
+    localStorage.setItem('http.env_vars', JSON.stringify(pairs));
+    closeHttpEnvModal();
+}
+
+function showHttpEnvModal() {
+    const container = document.getElementById('http-env-kv');
+    container.innerHTML = '';
+    const entries = Object.entries(_httpEnvVars);
+    if (entries.length === 0) {
+        addEnvRow();
+    } else {
+        entries.forEach(([k, v]) => addEnvRow(k, v));
+    }
+    document.getElementById('http-env-modal').style.display = 'flex';
+}
+
+function closeHttpEnvModal() {
+    document.getElementById('http-env-modal').style.display = 'none';
+}
+
+function addEnvRow(key = '', value = '') {
+    const container = document.getElementById('http-env-kv');
+    const row = document.createElement('div');
+    row.className = 'kv-row';
+    row.innerHTML = '<input type="text" class="kv-key" placeholder="VAR_NAME" autocomplete="off" value="' + escapeHtmlAttr(key) + '"><input type="text" class="kv-value" placeholder="value" autocomplete="off" value="' + escapeHtmlAttr(value) + '"><button class="kv-remove" onclick="removeKvRow(this)">✕</button>';
+    container.appendChild(row);
+}
+
+function resolveVars(text) {
+    if (!text || typeof text !== 'string') return text;
+    return text.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
+        const k = key.trim();
+        return Object.prototype.hasOwnProperty.call(_httpEnvVars, k) ? _httpEnvVars[k] : '{{' + k + '}}';
+    });
+}
+
+function hasUnresolvedVars(text) {
+    return /\{\{[^}]+\}\}/.test(text);
+}
 let _httpExpandedFolders = new Set(); // 展开的文件夹 id 集合
 let _httpFolderModalReturnTo = null; // 新建文件夹后返回的上下文: 'favorite' 或 null
 let _httpLayoutMode = 'vertical'; // 'vertical' | 'horizontal'
@@ -2219,6 +2275,7 @@ document.getElementById('http-params-kv').addEventListener('input', syncParamsTo
         _httpFavorites = await invoke('http_load_favorites');
         _httpFolders = await invoke('http_load_folders');
     } catch(e) {}
+    loadHttpEnv();
 })();
 
 function switchHttpPanelMode(mode) {
@@ -2602,6 +2659,46 @@ function toggleHttpBodyEditor() {
     requestAnimationFrame(() => { requestAnimationFrame(() => { if (editors.httpBody) editors.httpBody.refresh(); }); });
 }
 
+function toggleHttpAuthPanel() {
+    const type = document.getElementById('http-auth-type').value;
+    ['bearer', 'basic', 'apikey'].forEach(t => {
+        document.getElementById('http-auth-' + t).style.display = type === t ? 'block' : 'none';
+    });
+}
+
+function getAuthHeaders() {
+    const type = document.getElementById('http-auth-type').value;
+    if (type === 'bearer') {
+        const token = document.getElementById('http-auth-bearer-token').value.trim();
+        return token ? { 'Authorization': 'Bearer ' + token } : {};
+    }
+    if (type === 'basic') {
+        const user = document.getElementById('http-auth-basic-user').value;
+        const pass = document.getElementById('http-auth-basic-pass').value;
+        if (!user && !pass) return {};
+        return { 'Authorization': 'Basic ' + btoa(user + ':' + pass) };
+    }
+    if (type === 'apikey') {
+        const name = document.getElementById('http-auth-apikey-name').value.trim();
+        const val = document.getElementById('http-auth-apikey-value').value.trim();
+        const loc = document.getElementById('http-auth-apikey-loc').value;
+        if (!name || !val || loc !== 'header') return {};
+        return { [name]: val };
+    }
+    return {};
+}
+
+function getAuthQueryParams() {
+    const type = document.getElementById('http-auth-type').value;
+    if (type === 'apikey') {
+        const name = document.getElementById('http-auth-apikey-name').value.trim();
+        const val = document.getElementById('http-auth-apikey-value').value.trim();
+        const loc = document.getElementById('http-auth-apikey-loc').value;
+        if (name && val && loc === 'query') return { [name]: val };
+    }
+    return {};
+}
+
 function formatHttpBodyJson(action) {
     if (!editors.httpBody) return;
     const raw = editors.httpBody.getValue();
@@ -2742,7 +2839,7 @@ function exportAsCurl() {
         alert('请先输入请求 URL');
         return;
     }
-    const headers = getKvPairs('http-headers-kv');
+    const headers = getHeaderPairs();
     const bodyType = document.getElementById('http-body-type').value;
     const body = editors.httpBody ? editors.httpBody.getValue() : '';
 
@@ -2774,6 +2871,22 @@ function copyCurlOutput() {
     }).catch(() => {
         alert('复制失败');
     });
+}
+
+// ===== 大响应保护 =====
+const HTTP_MAX_BODY_SIZE = 512 * 1024; // 512KB
+let _httpFullResponseBody = '';
+
+function loadFullHttpResponse() {
+    if (!_httpFullResponseBody) return;
+    let bodyText = _httpFullResponseBody;
+    try {
+        const parsed = JSON.parse(_httpFullResponseBody);
+        bodyText = JSON.stringify(parsed, null, 2);
+    } catch(e) {}
+    if (editors.httpResponseBody) editors.httpResponseBody.setValue(bodyText);
+    if (editors.httpResponseRaw) editors.httpResponseRaw.setValue(_httpFullResponseBody);
+    document.getElementById('http-response-size-warning').style.display = 'none';
 }
 
 // ===== HTTP 响应搜索（独立于 CodeMirror 搜索，专注大文本性能） =====
@@ -2941,10 +3054,20 @@ function formatBytes(bytes) {
 
 async function sendHttpRequest() {
     const method = document.getElementById('http-method').value;
-    const url = document.getElementById('http-url').value.trim();
-    if (!url) { alert('请输入 URL'); return; }
+    const rawUrl = document.getElementById('http-url').value.trim();
+    if (!rawUrl) { alert('请输入 URL'); return; }
+
+    // 解析环境变量
+    const url = resolveVars(rawUrl);
+    const urlInput = document.getElementById('http-url');
+    urlInput.style.borderColor = hasUnresolvedVars(url) ? 'var(--error)' : '';
 
     const headers = getHeaderPairs();
+    // Header 值解析环境变量
+    Object.keys(headers).forEach(k => { headers[k] = resolveVars(headers[k]); });
+    // Auth headers 合并（Auth 优先覆盖同名手动 Header）
+    Object.assign(headers, getAuthHeaders());
+
     const bodyType = document.getElementById('http-body-type').value;
     let body = '';
     if (bodyType === 'form-data') {
@@ -2952,7 +3075,10 @@ async function sendHttpRequest() {
     } else if (bodyType !== 'none') {
         body = editors.httpBody ? editors.httpBody.getValue() : '';
     }
+    body = resolveVars(body);
     const params = getKvPairs('http-params-kv');
+    // Auth query params 合并
+    Object.assign(params, getAuthQueryParams());
 
     let finalUrl = url;
     if (Object.keys(params).length > 0) {
@@ -2963,13 +3089,19 @@ async function sendHttpRequest() {
         } catch(e) {}
     }
 
+    document.getElementById('http-response-size-warning').style.display = 'none';
+    document.getElementById('http-response-image-wrap').style.display = 'none';
+    document.getElementById('http-response-body-editor').style.display = 'block';
+
     const btn = document.getElementById('http-send-btn');
     btn.disabled = true;
     btn.textContent = '发送中...';
 
+    const timeout = parseInt(document.getElementById('http-timeout').value, 10) || 30;
+
     try {
         const r = await invoke('http_request', {
-            req: { method, url: finalUrl, headers, body_type: bodyType, body, timeout: 30 }
+            req: { method, url: finalUrl, headers, body_type: bodyType, body, timeout }
         });
 
         document.getElementById('http-response-section').style.display = 'block';
@@ -2990,18 +3122,50 @@ async function sendHttpRequest() {
             statusEl.innerHTML = '<span style="color:var(--error);font-weight:600">❌ ' + (r.error || '请求失败') + '</span> <span style="color:var(--text-secondary)">| ' + r.time_ms + 'ms</span>';
         }
 
-        if (r.success && r.body) {
-            let bodyText = r.body;
-            try {
-                const parsed = JSON.parse(r.body);
-                bodyText = JSON.stringify(parsed, null, 2);
-            } catch(e) {}
+        _httpFullResponseBody = r.body || '';
+        const sizeWarning = document.getElementById('http-response-size-warning');
+        const sizeText = document.getElementById('http-response-size-text');
+        const isTruncated = r.success && !r.is_image && r.size_bytes > HTTP_MAX_BODY_SIZE;
+        const imageWrap = document.getElementById('http-response-image-wrap');
+        const bodyEditorEl = document.getElementById('http-response-body-editor');
+
+        if (r.success && r.is_image) {
+            // 图片响应：显示 img，隐藏代码编辑器和大小警告
+            const img = document.getElementById('http-response-image');
+            img.src = 'data:' + r.content_type + ';base64,' + r.body;
+            document.getElementById('http-response-image-info').textContent =
+                r.content_type + ' · ' + formatBytes(r.size_bytes);
+            imageWrap.style.display = 'flex';
+            bodyEditorEl.style.display = 'none';
+            sizeWarning.style.display = 'none';
+            if (editors.httpResponseRaw) editors.httpResponseRaw.setValue('[图片数据 ' + r.content_type + '，大小: ' + formatBytes(r.size_bytes) + '，Base64 编码后长度: ' + r.body.length + ']');
+        } else if (r.success && r.body) {
+            imageWrap.style.display = 'none';
+            bodyEditorEl.style.display = 'block';
+            let displayBody = r.body;
+            if (isTruncated) {
+                displayBody = r.body.slice(0, HTTP_MAX_BODY_SIZE) + '\n\n... [已截断，共 ' + formatBytes(r.size_bytes) + '，点击"加载完整内容"查看全部]';
+                sizeWarning.style.display = 'flex';
+                sizeText.textContent = '响应体较大（' + formatBytes(r.size_bytes) + '），已截断显示前 512KB';
+            } else {
+                sizeWarning.style.display = 'none';
+            }
+            let bodyText = displayBody;
+            if (!isTruncated) {
+                try {
+                    const parsed = JSON.parse(r.body);
+                    bodyText = JSON.stringify(parsed, null, 2);
+                } catch(e) {}
+            }
             if (editors.httpResponseBody) {
                 editors.httpResponseBody.setValue(bodyText);
                 try { editors.httpResponseBody.setOption('mode', 'javascript'); } catch(e) {}
             }
-            if (editors.httpResponseRaw) editors.httpResponseRaw.setValue(r.body);
+            if (editors.httpResponseRaw) editors.httpResponseRaw.setValue(displayBody);
         } else {
+            imageWrap.style.display = 'none';
+            bodyEditorEl.style.display = 'block';
+            sizeWarning.style.display = 'none';
             if (editors.httpResponseBody) editors.httpResponseBody.setValue(r.body || '');
             if (editors.httpResponseRaw) editors.httpResponseRaw.setValue(r.body || '');
         }
@@ -3017,7 +3181,7 @@ async function sendHttpRequest() {
 
         const entry = {
             id: Date.now().toString(36) + Math.random().toString(36).slice(2),
-            request: { method, url: finalUrl, headers, body_type: bodyType, body, timeout: 30 },
+            request: { method, url: finalUrl, headers, body_type: bodyType, body, timeout },
             response: r.success ? r : null,
             created_at: Math.floor(Date.now() / 1000),
             name: null,
@@ -3058,6 +3222,14 @@ function renderHttpPanelList() {
     if (_httpPanelMode === 'favorites' && _httpActiveFolder) {
         const ids = getFolderDescendants(_httpActiveFolder);
         entries = entries.filter(e => e.folder_id && ids.includes(e.folder_id));
+    }
+    const searchQuery = (document.getElementById('http-panel-search')?.value || '').toLowerCase().trim();
+    if (searchQuery) {
+        entries = entries.filter(e => {
+            const url = (e.request.url || '').toLowerCase();
+            const name = (e.name || '').toLowerCase();
+            return url.includes(searchQuery) || name.includes(searchQuery);
+        });
     }
     if (entries.length === 0) {
         list.innerHTML = '<div style="color:var(--text-secondary);padding:20px;text-align:center">暂无数据</div>';

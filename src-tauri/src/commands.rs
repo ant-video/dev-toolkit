@@ -2595,6 +2595,8 @@ pub struct HttpResponse {
     pub size_bytes: u64,
     pub redirects: Vec<HttpRedirect>,
     pub error: Option<String>,
+    pub is_image: bool,
+    pub content_type: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -2775,6 +2777,8 @@ pub async fn http_request(req: HttpRequest) -> HttpResponse {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
+            let content_type = resp_headers.get("content-type").cloned().unwrap_or_default();
+            let is_image = content_type.starts_with("image/");
             let body_bytes = match resp.bytes().await {
                 Ok(b) => b,
                 Err(e) => {
@@ -2782,14 +2786,21 @@ pub async fn http_request(req: HttpRequest) -> HttpResponse {
                         success: false, status, status_text, headers: resp_headers,
                         body: String::new(), time_ms: elapsed, size_bytes: 0, redirects,
                         error: Some(format!("读取响应体失败: {}", e)),
+                        is_image: false, content_type: String::new(),
                     };
                 }
             };
             let size = body_bytes.len() as u64;
-            let body = String::from_utf8_lossy(&body_bytes).to_string();
+            let body = if is_image {
+                use base64::Engine;
+                base64::engine::general_purpose::STANDARD.encode(&body_bytes)
+            } else {
+                String::from_utf8_lossy(&body_bytes).to_string()
+            };
             HttpResponse {
                 success: true, status, status_text, headers: resp_headers,
                 body, time_ms: elapsed, size_bytes: size, redirects, error: None,
+                is_image, content_type,
             }
         }
         Err(e) => {
@@ -2802,6 +2813,7 @@ pub async fn http_request(req: HttpRequest) -> HttpResponse {
                 success: false, status: 0, status_text: String::new(),
                 headers: std::collections::HashMap::new(), body: String::new(),
                 time_ms: elapsed, size_bytes: 0, redirects: Vec::new(), error: Some(msg),
+                is_image: false, content_type: String::new(),
             }
         }
     }

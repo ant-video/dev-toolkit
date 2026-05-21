@@ -118,12 +118,17 @@
                     <div class="http-action-bar">
                         <button class="btn btn-ghost btn-sm" onclick="showAddFavoriteModal()">⭐ 收藏</button>
                         <button class="btn btn-ghost btn-sm" onclick="toggleHttpPanel('history')">📜 历史</button>
+                        <button class="btn btn-ghost btn-sm" onclick="showHttpEnvModal()">🌍 环境变量</button>
                         <span class="http-action-separator"></span>
                         <button class="btn btn-ghost btn-sm" onclick="showCurlImportModal()">📥 导入cURL</button>
                         <button class="btn btn-ghost btn-sm" onclick="exportAsCurl()">📤 导出cURL</button>
                         <span class="http-action-separator"></span>
                         <button class="btn btn-ghost btn-sm" id="http-layout-btn" onclick="toggleHttpLayout()" title="切换布局">↕ 上下</button>
                         <button class="btn btn-ghost btn-sm" id="http-float-btn" onclick="floatHttpResponse()" title="响应悬浮窗">📺 悬浮</button>
+                        <span class="http-action-separator"></span>
+                        <label class="http-timeout-label">超时</label>
+                        <input type="number" id="http-timeout" class="http-timeout-input" value="30" min="1" max="300" title="请求超时（秒）">
+                        <span class="http-timeout-unit">s</span>
                     </div>
 
                     <div id="http-layout-container">
@@ -133,6 +138,7 @@
                             <button class="http-tab active" onclick="switchHttpTab('request','params')">Params</button>
                             <button class="http-tab" onclick="switchHttpTab('request','headers')">Headers</button>
                             <button class="http-tab" onclick="switchHttpTab('request','body')">Body</button>
+                            <button class="http-tab" onclick="switchHttpTab('request','auth')">Auth</button>
                         </div>
                         <div class="http-tab-content active" id="http-tab-params">
                             <div id="http-params-kv" class="kv-editor">
@@ -203,6 +209,46 @@
                                 <button class="btn btn-ghost btn-sm" onclick="addKvRow('http-formdata-kv')">+ 添加字段</button>
                             </div>
                         </div>
+                        <div class="http-tab-content" id="http-tab-auth">
+                            <div class="http-auth-type-row">
+                                <label>认证类型</label>
+                                <select id="http-auth-type" class="select-field" onchange="toggleHttpAuthPanel()">
+                                    <option value="none">无</option>
+                                    <option value="bearer">Bearer Token</option>
+                                    <option value="basic">Basic Auth</option>
+                                    <option value="apikey">API Key</option>
+                                </select>
+                            </div>
+                            <div id="http-auth-bearer" class="http-auth-panel" style="display:none">
+                                <label>Token</label>
+                                <input type="text" id="http-auth-bearer-token" class="input-field"
+                                       placeholder="your-token-here" autocomplete="off" spellcheck="false">
+                                <p class="http-auth-hint">发送时自动注入 Authorization: Bearer &lt;token&gt;</p>
+                            </div>
+                            <div id="http-auth-basic" class="http-auth-panel" style="display:none">
+                                <label>用户名</label>
+                                <input type="text" id="http-auth-basic-user" class="input-field"
+                                       placeholder="username" autocomplete="off">
+                                <label>密码</label>
+                                <input type="password" id="http-auth-basic-pass" class="input-field"
+                                       placeholder="password" autocomplete="new-password">
+                                <p class="http-auth-hint">发送时自动注入 Authorization: Basic base64(user:pass)</p>
+                            </div>
+                            <div id="http-auth-apikey" class="http-auth-panel" style="display:none">
+                                <label>Key 名称</label>
+                                <input type="text" id="http-auth-apikey-name" class="input-field"
+                                       placeholder="X-API-Key" value="X-API-Key" autocomplete="off">
+                                <label>Value</label>
+                                <input type="text" id="http-auth-apikey-value" class="input-field"
+                                       placeholder="your-api-key" autocomplete="off" spellcheck="false">
+                                <label>位置</label>
+                                <select id="http-auth-apikey-loc" class="select-field">
+                                    <option value="header">Header</option>
+                                    <option value="query">Query Param</option>
+                                </select>
+                                <p class="http-auth-hint">发送时自动注入到 Header 或 URL 参数中</p>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- 响应区域 -->
@@ -220,6 +266,10 @@
                                 <button class="http-tab-search-btn" onclick="openHttpResponseSearch()" title="搜索响应 (⌘F)">🔍</button>
                             </div>
                             <div class="http-tab-content active" id="http-response-tab-body">
+                                <div id="http-response-size-warning" style="display:none" class="http-size-warning">
+                                    <span id="http-response-size-text"></span>
+                                    <button class="btn btn-ghost btn-sm" onclick="loadFullHttpResponse()">加载完整内容</button>
+                                </div>
                                 <div class="http-response-search-bar" id="http-response-search-bar">
                                     <input type="text" class="http-search-input" id="http-response-search-input" placeholder="搜索响应内容..." autocomplete="off">
                                     <span class="http-search-info" id="http-response-search-info"></span>
@@ -227,6 +277,10 @@
                                     <button class="http-search-btn" onclick="httpResponseSearchNext()" title="下一个">▼</button>
                                     <span class="http-search-option" data-option="case" onclick="this.classList.toggle('active');doHttpResponseSearch()" title="区分大小写">Aa</span>
                                     <button class="http-search-close" onclick="closeHttpResponseSearch()">✕</button>
+                                </div>
+                                <div id="http-response-image-wrap" style="display:none" class="http-image-preview-wrap">
+                                    <img id="http-response-image" class="http-image-preview" alt="响应图片">
+                                    <div class="http-image-info" id="http-response-image-info"></div>
                                 </div>
                                 <div id="http-response-body-editor" class="code-editor resizable" data-min-h="80" data-default-h="260"></div>
                             </div>
@@ -249,6 +303,11 @@
                         <div class="http-panel-tabs" id="http-panel-tabs">
                             <button class="http-panel-tab active" onclick="switchHttpPanelMode('history')">历史</button>
                             <button class="http-panel-tab" onclick="switchHttpPanelMode('favorites')">收藏</button>
+                        </div>
+                        <div class="http-panel-search-wrap">
+                            <input type="text" id="http-panel-search" class="http-panel-search"
+                                   placeholder="搜索 URL 或名称..." autocomplete="off"
+                                   oninput="renderHttpPanelList()">
                         </div>
                         <div class="http-panel-folders" id="http-panel-folders" style="display:none"></div>
                         <div class="http-panel-actions" id="http-panel-actions"></div>
@@ -363,6 +422,25 @@
                             <div class="modal-footer">
                                 <button class="btn btn-secondary" onclick="closeRenameFavModal()">取消</button>
                                 <button class="btn btn-primary" onclick="confirmRenameFav()">确定</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 环境变量编辑模态框 -->
+                    <div id="http-env-modal" class="modal-overlay" style="display:none">
+                        <div class="modal-content" style="width:560px;max-width:90vw">
+                            <div class="modal-header">
+                                <span>环境变量</span>
+                                <button class="modal-close" onclick="closeHttpEnvModal()">✕</button>
+                            </div>
+                            <div class="modal-body">
+                                <p class="http-auth-hint" style="margin-bottom:12px">在 URL、Header 值、Body 中使用 <code>&#123;&#123;VAR_NAME&#125;&#125;</code> 引用变量</p>
+                                <div id="http-env-kv" class="kv-editor"></div>
+                                <button class="btn btn-ghost btn-sm" style="margin-top:8px" onclick="addEnvRow()">+ 添加变量</button>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-secondary" onclick="closeHttpEnvModal()">取消</button>
+                                <button class="btn btn-primary" onclick="saveHttpEnv()">保存</button>
                             </div>
                         </div>
                     </div>
