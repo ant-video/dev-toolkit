@@ -503,6 +503,31 @@ function initEditors() {
 initEditors();
 updateShortcutHint();
 
+// JSON 实时校验（仅当 body-type=json 时）
+function validateHttpBodyJson() {
+    const statusEl = document.getElementById('http-body-json-status');
+    if (!statusEl || !editors.httpBody) return;
+    const type = document.getElementById('http-body-type');
+    if (!type || type.value !== 'json') { statusEl.textContent = ''; return; }
+    const val = editors.httpBody.getValue().trim();
+    if (!val) { statusEl.textContent = ''; return; }
+    try {
+        JSON.parse(val);
+        statusEl.textContent = '✓ valid';
+        statusEl.className = 'http-body-json-status valid';
+    } catch(e) {
+        const msg = e.message.replace(/^JSON\.parse: /, '').slice(0, 40);
+        statusEl.textContent = '✗ ' + msg;
+        statusEl.className = 'http-body-json-status invalid';
+    }
+}
+if (editors.httpBody) {
+    editors.httpBody.on('change', debounce(validateHttpBodyJson, 300));
+}
+document.addEventListener('change', e => {
+    if (e.target && e.target.id === 'http-body-type') validateHttpBodyJson();
+});
+
 // ===== Clipboard =====
 function copyToClipboard(text) {
     navigator.clipboard.writeText(text).catch(() => {});
@@ -1994,7 +2019,8 @@ function createTabState() {
 function getKvRowData(containerId) {
     const rows = [];
     document.getElementById(containerId).querySelectorAll('.kv-row').forEach(row => {
-        rows.push({ key: row.querySelector('.kv-key').value, value: row.querySelector('.kv-value').value });
+        const cb = row.querySelector('.kv-check');
+        rows.push({ key: row.querySelector('.kv-key').value, value: row.querySelector('.kv-value').value, checked: cb ? cb.checked : true });
     });
     return rows;
 }
@@ -2003,7 +2029,7 @@ function setKvRowData(containerId, rows) {
     const container = document.getElementById(containerId);
     container.innerHTML = '';
     if (!rows || rows.length === 0) { addKvRow(containerId); return; }
-    rows.forEach(r => addKvRow(containerId, r.key || '', r.value || ''));
+    rows.forEach(r => addKvRow(containerId, r.key || '', r.value || '', r.checked !== false));
 }
 
 function getHeaderRowData() {
@@ -2068,7 +2094,7 @@ function restoreTabState(tab) {
         toggleHttpBodyEditor();
         if (editors.httpBody) {
             editors.httpBody.setValue(tab.body || '');
-            setTimeout(() => editors.httpBody && editors.httpBody.refresh(), 30);
+            setTimeout(() => { editors.httpBody && editors.httpBody.refresh(); validateHttpBodyJson(); }, 30);
         }
         document.getElementById('http-auth-type').value = tab.authType;
         toggleHttpAuthPanel();
@@ -2106,12 +2132,15 @@ function restoreTabState(tab) {
     }
 
     closeHttpResponseSearch();
+    const hSearch = document.getElementById('http-resp-headers-search');
+    if (hSearch) { hSearch.value = ''; filterResponseHeaders(''); }
     syncFloatTitle();
 }
 
 const _reqMethodColors = { GET:'#00d68f', POST:'#ff9f43', PUT:'#448aff', DELETE:'#ff6b6b', PATCH:'#a855f7', HEAD:'#6c5ce7', OPTIONS:'#8b8fa3' };
 
 function _getReqTabLabel(tab) {
+    if (tab.customName) return tab.customName;
     if (!tab.url) return 'New Request';
     const url = tab.url.replace(/\{\{[^}]+\}\}/g, '…');
     try {
@@ -2129,14 +2158,40 @@ function renderReqTabs() {
         const isActive = tab.id === _reqActiveTabId;
         const color = _reqMethodColors[tab.method] || '#e4e6f0';
         const label = escapeHtml(_getReqTabLabel(tab));
-        return '<div class="http-req-tab' + (isActive ? ' active' : '') + '" onclick="switchReqTab(\'' + tab.id + '\')">' +
+        return '<div class="http-req-tab' + (isActive ? ' active' : '') + '" onclick="switchReqTab(\'' + tab.id + '\')" ondblclick="event.stopPropagation();startTabRename(\'' + tab.id + '\')">' +
             '<span class="http-req-tab-method" style="color:' + color + '">' + tab.method + '</span>' +
-            '<span class="http-req-tab-label">' + label + '</span>' +
+            '<span class="http-req-tab-label" id="http-req-tab-label-' + tab.id + '">' + label + '</span>' +
             (canClose ? '<button class="http-req-tab-close" onclick="event.stopPropagation();closeReqTab(\'' + tab.id + '\')">✕</button>' : '') +
             '</div>';
     }).join('');
     const activeEl = container.querySelector('.http-req-tab.active');
     if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function startTabRename(id) {
+    const tab = _reqTabs.find(t => t.id === id);
+    if (!tab) return;
+    const span = document.getElementById('http-req-tab-label-' + id);
+    if (!span) return;
+    const currentName = _getReqTabLabel(tab);
+    const input = document.createElement('input');
+    input.className = 'http-req-tab-rename-input';
+    input.value = currentName === 'New Request' ? '' : currentName;
+    input.placeholder = 'New Request';
+    span.replaceWith(input);
+    input.focus();
+    input.select();
+    function commit() {
+        const val = input.value.trim();
+        tab.customName = val || '';
+        renderReqTabs();
+        saveReqTabsToStorage();
+    }
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+        if (e.key === 'Escape') { input.removeEventListener('blur', commit); renderReqTabs(); }
+    });
 }
 
 function addReqTab() {
@@ -2146,6 +2201,7 @@ function addReqTab() {
     _reqActiveTabId = tab.id;
     restoreTabState(tab);
     renderReqTabs();
+    saveReqTabsToStorage();
 }
 
 function closeReqTab(id) {
@@ -2160,6 +2216,7 @@ function closeReqTab(id) {
         restoreTabState(_reqTabs[newIdx]);
     }
     renderReqTabs();
+    saveReqTabsToStorage();
 }
 
 function switchReqTab(id) {
@@ -2169,6 +2226,7 @@ function switchReqTab(id) {
     const tab = _reqTabs.find(t => t.id === id);
     if (tab) restoreTabState(tab);
     renderReqTabs();
+    saveReqTabsToStorage();
 }
 
 function loadHttpEnv() {
@@ -2204,6 +2262,57 @@ function showHttpEnvModal() {
 
 function closeHttpEnvModal() {
     document.getElementById('http-env-modal').style.display = 'none';
+}
+
+// ===== 提取响应字段到环境变量 =====
+function _getJsonByPath(obj, path) {
+    if (!path) return obj;
+    return path.split('.').reduce((o, k) => (o != null && typeof o === 'object' ? o[k] : undefined), obj);
+}
+
+function showExtractVarModal() {
+    const respSection = document.getElementById('http-response-section');
+    if (!respSection || respSection.style.display === 'none') { alert('暂无响应内容'); return; }
+    document.getElementById('http-extract-path').value = '';
+    document.getElementById('http-extract-varname').value = '';
+    document.getElementById('http-extract-preview').textContent = '';
+    document.getElementById('http-extract-var-modal').style.display = 'flex';
+    document.getElementById('http-extract-path').oninput = _updateExtractPreview;
+}
+
+function _updateExtractPreview() {
+    const path = document.getElementById('http-extract-path').value.trim();
+    const raw = editors.httpResponseBody ? editors.httpResponseBody.getValue() : '';
+    const preview = document.getElementById('http-extract-preview');
+    try {
+        const parsed = JSON.parse(raw);
+        const val = _getJsonByPath(parsed, path);
+        preview.textContent = val === undefined ? '(未找到路径)' : JSON.stringify(val, null, 2).slice(0, 200);
+        preview.style.color = 'var(--text-primary)';
+    } catch(e) {
+        preview.textContent = '响应不是 JSON 格式';
+        preview.style.color = 'var(--text-secondary)';
+    }
+}
+
+function closeExtractVarModal() {
+    document.getElementById('http-extract-var-modal').style.display = 'none';
+}
+
+function confirmExtractVar() {
+    const path = document.getElementById('http-extract-path').value.trim();
+    const varName = document.getElementById('http-extract-varname').value.trim().toUpperCase();
+    if (!varName) { alert('请输入变量名'); return; }
+    const raw = editors.httpResponseBody ? editors.httpResponseBody.getValue() : '';
+    try {
+        const parsed = JSON.parse(raw);
+        const val = _getJsonByPath(parsed, path);
+        const strVal = typeof val === 'object' ? JSON.stringify(val) : String(val == null ? '' : val);
+        _httpEnvVars[varName] = strVal;
+        saveHttpEnv();
+        closeExtractVarModal();
+        alert('已提取 ' + varName + ' = ' + strVal.slice(0, 60));
+    } catch(e) { alert('提取失败：' + e.message); }
 }
 
 function addEnvRow(key = '', value = '') {
@@ -2466,11 +2575,16 @@ function syncParamsToUrl() {
     try {
         const urlInput = document.getElementById('http-url');
         const raw = urlInput.value.trim();
-        const params = getKvPairs('http-params-kv');
         try {
             const u = new URL(raw.startsWith('http') ? raw : 'http://' + raw);
             u.search = '';
-            Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+            document.getElementById('http-params-kv').querySelectorAll('.kv-row').forEach(row => {
+                const cb = row.querySelector('.kv-check');
+                if (cb && !cb.checked) return;
+                const k = row.querySelector('.kv-key').value.trim();
+                const v = row.querySelector('.kv-value').value;
+                if (k) u.searchParams.set(k, v);
+            });
             const result = u.toString();
             urlInput.value = raw.startsWith('http') ? result : result.replace(/^https?:\/\//, '');
         } catch(e) {}
@@ -2478,6 +2592,7 @@ function syncParamsToUrl() {
 }
 
 document.getElementById('http-url').addEventListener('input', syncUrlToParams);
+document.getElementById('http-url').addEventListener('keydown', e => { if (e.key === 'Enter') sendHttpRequest(); });
 document.getElementById('http-params-kv').addEventListener('input', syncParamsToUrl);
 
 (async () => {
@@ -2489,11 +2604,47 @@ document.getElementById('http-params-kv').addEventListener('input', syncParamsTo
     loadHttpEnv();
 })();
 
-// 初始化第一个请求 Tab
+// 持久化 Tab 列表（只存请求状态，不存响应内容）
+const REQ_TABS_KEY = 'http.req_tabs.v1';
+
+function saveReqTabsToStorage() {
+    try {
+        const lightweight = _reqTabs.map(t => ({
+            id: t.id, customName: t.customName || null,
+            method: t.method, url: t.url, timeout: t.timeout,
+            bodyType: t.bodyType, body: t.body,
+            params: t.params, headers: t.headers, formdata: t.formdata,
+            authType: t.authType, authBearer: t.authBearer,
+            authBasicUser: t.authBasicUser, authBasicPass: t.authBasicPass,
+            authApiKeyName: t.authApiKeyName, authApiKeyValue: t.authApiKeyValue,
+            authApiKeyLoc: t.authApiKeyLoc,
+        }));
+        localStorage.setItem(REQ_TABS_KEY, JSON.stringify({ tabs: lightweight, activeId: _reqActiveTabId }));
+    } catch(e) {}
+}
+
+function loadReqTabsFromStorage() {
+    try {
+        const raw = localStorage.getItem(REQ_TABS_KEY);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (!data.tabs || !data.tabs.length) return null;
+        return data;
+    } catch(e) { return null; }
+}
+
+// 初始化 Tab（优先从 localStorage 恢复）
 (function initReqTabs() {
-    const tab = createTabState();
-    _reqTabs = [tab];
-    _reqActiveTabId = tab.id;
+    const saved = loadReqTabsFromStorage();
+    if (saved) {
+        _reqTabs = saved.tabs.map(t => ({ ...createTabState(), ...t }));
+        _reqActiveTabId = saved.activeId && _reqTabs.find(t => t.id === saved.activeId)
+            ? saved.activeId : _reqTabs[0].id;
+    } else {
+        const tab = createTabState();
+        _reqTabs = [tab];
+        _reqActiveTabId = tab.id;
+    }
     renderReqTabs();
 })();
 
@@ -2509,13 +2660,9 @@ document.addEventListener('keydown', e => {
 function switchHttpPanelMode(mode) {
     _httpActiveFolder = null;
     _httpPanelMode = mode;
-    const tabs = document.querySelectorAll('.http-panel-tab');
-    tabs.forEach(t => t.classList.toggle('active', t.textContent.includes(mode === 'history' ? '历史' : '收藏')));
-    document.getElementById('http-panel-folders').style.display = mode === 'favorites' ? 'block' : 'none';
-    document.getElementById('http-panel-actions').innerHTML = mode === 'history'
-        ? '<button class="btn btn-ghost btn-sm" onclick="clearHttpHistory()">🗑 清空历史</button>'
-        : '<button class="btn btn-ghost btn-sm" onclick="clearHttpFavorites()">🗑 清空收藏</button>';
-    renderHttpFolders();
+    document.querySelectorAll('.http-panel-tab').forEach(t => {
+        t.classList.toggle('active', t.dataset.mode === mode);
+    });
     renderHttpPanelList();
 }
 
@@ -2562,17 +2709,12 @@ function renderFolderTree(nodes, depth) {
     }).join('');
 }
 
-function renderHttpFolders() {
-    const container = document.getElementById('http-panel-folders');
-    if (_httpPanelMode !== 'favorites') { container.style.display = 'none'; return; }
-    container.style.display = 'block';
-    const allActive = _httpActiveFolder === null ? 'active' : '';
-    let html = '<div class="folder-tree-header">'
-        + '<button class="http-folder-btn ' + allActive + '" onclick="setHttpActiveFolder(null)">全部</button>'
-        + '<button class="http-folder-btn" onclick="showAddFolderModal(null)">+ 新建</button>'
-        + '</div>';
-    html += renderFolderTree(buildFolderTree(), 0);
-    container.innerHTML = html;
+function renderHttpFolders() { renderHttpPanelList(); } // 兼容旧调用
+
+function toggleCollectionExpand(id) {
+    if (_httpExpandedFolders.has(id)) _httpExpandedFolders.delete(id);
+    else _httpExpandedFolders.add(id);
+    renderHttpPanelList();
 }
 
 function toggleFolderExpand(id) {
@@ -2792,11 +2934,10 @@ async function addHttpFavorite(name, folderId) {
     _httpFavorites.unshift(entry);
     try {
         await invoke('http_save_favorites', { entries: _httpFavorites });
-        if (_httpPanelMode === 'favorites') {
-            renderHttpFolders();
+        if (_httpPanelMode === 'collections' || _httpPanelMode === 'favorites') {
             renderHttpPanelList();
         }
-    } catch(e) { alert('收藏失败: ' + e); }
+    } catch(e) { alert('保存失败: ' + e); }
 }
 
 function updateHttpMethodColor() {
@@ -2829,13 +2970,23 @@ function switchHttpTab(group, tabName) {
     }, 10);
 }
 
-function addKvRow(containerId, key = '', value = '') {
+function addKvRow(containerId, key = '', value = '', checked = true) {
     const container = document.getElementById(containerId);
     const row = document.createElement('div');
-    row.className = 'kv-row';
-    row.innerHTML = '<input type="text" class="kv-key" placeholder="Key" autocomplete="off" value="' + escapeHtmlAttr(key) + '"><input type="text" class="kv-value" placeholder="Value" autocomplete="off" value="' + escapeHtmlAttr(value) + '"><button class="kv-remove" onclick="removeKvRow(this)">✕</button>';
+    row.className = 'kv-row' + (checked ? '' : ' disabled');
+    const cbHtml = containerId === 'http-params-kv'
+        ? '<input type="checkbox" class="kv-check"' + (checked ? ' checked' : '') + '>'
+        : '';
+    row.innerHTML = cbHtml + '<input type="text" class="kv-key" placeholder="Key" autocomplete="off" value="' + escapeHtmlAttr(key) + '"><input type="text" class="kv-value" placeholder="Value" autocomplete="off" value="' + escapeHtmlAttr(value) + '"><button class="kv-remove" onclick="removeKvRow(this)">✕</button>';
     container.appendChild(row);
-    if (containerId === 'http-params-kv' && key) syncParamsToUrl();
+    if (containerId === 'http-params-kv') {
+        const cb = row.querySelector('.kv-check');
+        if (cb) cb.addEventListener('change', function() {
+            row.classList.toggle('disabled', !this.checked);
+            syncParamsToUrl();
+        });
+        if (key) syncParamsToUrl();
+    }
 }
 
 function removeKvRow(btn) {
@@ -3105,6 +3256,18 @@ function copyCurlOutput() {
 const HTTP_MAX_BODY_SIZE = 512 * 1024; // 512KB
 let _httpFullResponseBody = '';
 
+function copyHttpResponseBody() {
+    const text = editors.httpResponseBody ? editors.httpResponseBody.getValue() : '';
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('http-response-copy-btn');
+        if (!btn) return;
+        const orig = btn.textContent;
+        btn.textContent = '✅';
+        setTimeout(() => { btn.textContent = orig; }, 1200);
+    }).catch(() => {});
+}
+
 function loadFullHttpResponse() {
     if (!_httpFullResponseBody) return;
     let bodyText = _httpFullResponseBody;
@@ -3136,6 +3299,15 @@ function closeHttpResponseSearch() {
     _httpSearchState.matchIndex = -1;
     document.getElementById('http-response-search-info').textContent = '';
     document.getElementById('http-response-search-input').value = '';
+}
+
+function filterResponseHeaders(query) {
+    const q = query.trim().toLowerCase();
+    document.getElementById('http-response-headers-grid').querySelectorAll('.http-header-row').forEach(row => {
+        const key = (row.querySelector('.http-header-key') || {}).textContent || '';
+        const val = (row.querySelector('.http-header-val') || {}).textContent || '';
+        row.style.display = (!q || key.toLowerCase().includes(q) || val.toLowerCase().includes(q)) ? '' : 'none';
+    });
 }
 
 function clearHttpSearchHighlights() {
@@ -3323,7 +3495,8 @@ async function sendHttpRequest() {
 
     const btn = document.getElementById('http-send-btn');
     btn.disabled = true;
-    btn.textContent = '发送中...';
+    btn.classList.add('loading');
+    btn.textContent = '发送中';
 
     const timeout = parseInt(document.getElementById('http-timeout').value, 10) || 30;
 
@@ -3426,6 +3599,7 @@ async function sendHttpRequest() {
         document.getElementById('http-response-status').innerHTML = '<span style="color:var(--error);font-weight:600">❌ ' + e + '</span>';
     } finally {
         btn.disabled = false;
+        btn.classList.remove('loading');
         btn.textContent = '发送';
         renderReqTabs();
     }
@@ -3445,43 +3619,430 @@ function closeHttpPanel() {
     _httpPanelMode = '';
 }
 
-function renderHttpPanelList() {
-    const list = document.getElementById('http-panel-list');
-    let entries = _httpPanelMode === 'history' ? _httpHistory : _httpFavorites;
-    if (_httpPanelMode === 'favorites' && _httpActiveFolder) {
-        const ids = getFolderDescendants(_httpActiveFolder);
-        entries = entries.filter(e => e.folder_id && ids.includes(e.folder_id));
+function exportHttpData() {
+    if ((_httpPanelMode || 'collections') === 'history') {
+        _downloadJson(
+            { version: 1, type: 'http-history', data: _httpHistory },
+            'http-history-' + new Date().toISOString().slice(0, 10) + '.json'
+        );
+    } else {
+        document.getElementById('http-export-modal').style.display = 'flex';
     }
-    const searchQuery = (document.getElementById('http-panel-search')?.value || '').toLowerCase().trim();
-    if (searchQuery) {
-        entries = entries.filter(e => {
-            const url = (e.request.url || '').toLowerCase();
-            const name = (e.name || '').toLowerCase();
-            return url.includes(searchQuery) || name.includes(searchQuery);
+}
+
+function closeHttpExportModal() {
+    document.getElementById('http-export-modal').style.display = 'none';
+}
+
+function exportAsInternal() {
+    closeHttpExportModal();
+    _downloadJson(
+        { version: 1, type: 'http-collections', folders: _httpFolders, data: _httpFavorites },
+        'http-collections-' + new Date().toISOString().slice(0, 10) + '.json'
+    );
+}
+
+function exportAsPostman() {
+    closeHttpExportModal();
+    _downloadJson(
+        _convertToPostman(_httpFolders, _httpFavorites, 'DevToolkit Collections'),
+        'postman-collection-' + new Date().toISOString().slice(0, 10) + '.json'
+    );
+}
+
+function _downloadJson(obj, filename) {
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    a.click(); URL.revokeObjectURL(url);
+}
+
+function _convertToPostman(folders, favorites, collectionName) {
+    function toPostmanUrl(raw) {
+        try {
+            const u = new URL(raw.startsWith('http') ? raw : 'https://' + raw);
+            const query = [];
+            u.searchParams.forEach((v, k) => query.push({ key: k, value: v }));
+            return {
+                raw,
+                protocol: u.protocol.replace(':', ''),
+                host: u.hostname.split('.'),
+                path: u.pathname.split('/').filter(Boolean),
+                query: query.length ? query : undefined,
+            };
+        } catch(e) { return { raw: raw || '' }; }
+    }
+
+    function toPostmanBody(bodyType, body) {
+        if (!bodyType || bodyType === 'none') return undefined;
+        if (bodyType === 'json') return { mode: 'raw', raw: body || '', options: { raw: { language: 'json' } } };
+        if (bodyType === 'text') return { mode: 'raw', raw: body || '' };
+        if (bodyType === 'form-data') {
+            let fd = [];
+            try { fd = JSON.parse(body || '[]'); } catch(e) {}
+            return { mode: 'formdata', formdata: fd.map(f => ({ key: f.key || '', value: f.value || '', type: 'text' })) };
+        }
+        if (bodyType === 'urlencoded') {
+            return { mode: 'urlencoded', urlencoded: (body || '').split('&').filter(Boolean).map(p => {
+                const [k, ...v] = p.split('=');
+                return { key: decodeURIComponent(k || ''), value: decodeURIComponent(v.join('=') || '') };
+            })};
+        }
+        return { mode: 'raw', raw: body || '' };
+    }
+
+    function favToItem(fav) {
+        const req = fav.request || {};
+        return {
+            name: fav.name || (req.method + ' ' + req.url),
+            request: {
+                method: req.method || 'GET',
+                header: Object.entries(req.headers || {}).map(([key, value]) => ({ key, value })),
+                url: toPostmanUrl(req.url || ''),
+                body: toPostmanBody(req.body_type, req.body),
+            },
+        };
+    }
+
+    function buildItems(parentId) {
+        const childFolders = folders.filter(f => (f.parent_id || null) === parentId);
+        const childReqs = favorites.filter(e => (e.folder_id || null) === parentId);
+        return [
+            ...childFolders.map(f => ({ name: f.name, item: buildItems(f.id) })),
+            ...childReqs.map(favToItem),
+        ];
+    }
+
+    return {
+        info: {
+            name: collectionName || 'DevToolkit Collections',
+            _postman_id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+            schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
+        },
+        item: buildItems(null),
+    };
+}
+
+function importHttpData() {
+    document.getElementById('http-import-file').click();
+}
+
+async function onHttpImportFile(e) {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        // 自动检测格式
+        if (parsed.log && Array.isArray(parsed.log.entries)) {
+            await _importFromHar(parsed);
+        } else if (parsed.info && parsed.info.schema && parsed.info.schema.includes('postman')) {
+            await _importFromPostman(parsed);
+        } else if (parsed.type === 'http-history') {
+            await _importInternalHistory(parsed);
+        } else {
+            await _importInternalCollections(parsed);
+        }
+        renderHttpPanelList();
+    } catch(err) { alert('导入失败：' + err.message); }
+}
+
+async function _importFromPostman(parsed) {
+    const newFolders = [];
+    const newFavorites = [];
+    let _seq = 0;
+    const _uid = () => Date.now().toString(36) + '_' + (++_seq).toString(36) + '_' + Math.random().toString(36).slice(2);
+
+    const _now = Math.floor(Date.now() / 1000);
+    // info.name 作为根集合
+    const rootFolderId = _uid();
+    const collectionName = (parsed.info && parsed.info.name) || 'Imported Collection';
+    newFolders.push({ id: rootFolderId, name: collectionName, parent_id: null, created_at: _now });
+
+    function parseItems(items, parentFolderId) {
+        (items || []).forEach(item => {
+            if (Array.isArray(item.item)) {
+                // 子集合（folder）
+                const fid = _uid();
+                newFolders.push({ id: fid, name: item.name || 'Folder', parent_id: parentFolderId, created_at: _now });
+                parseItems(item.item, fid);
+            } else if (item.request) {
+                const req = item.request;
+                const url = typeof req.url === 'string' ? req.url : (req.url && req.url.raw) || '';
+                const method = (req.method || 'GET').toUpperCase();
+                const headers = {};
+                (req.header || []).forEach(h => { if (h.key && !h.disabled) headers[h.key] = h.value || ''; });
+
+                let bodyType = 'none', body = '';
+                if (req.body) {
+                    if (req.body.mode === 'raw') {
+                        const lang = req.body.options?.raw?.language || '';
+                        bodyType = lang === 'json' ? 'json' : 'text';
+                        body = req.body.raw || '';
+                        if (bodyType === 'text' && body.trim().startsWith('{')) bodyType = 'json';
+                    } else if (req.body.mode === 'formdata') {
+                        bodyType = 'form-data';
+                        body = JSON.stringify((req.body.formdata || []).map(f => ({ key: f.key || '', value: f.value || '' })));
+                    } else if (req.body.mode === 'urlencoded') {
+                        bodyType = 'urlencoded';
+                        body = (req.body.urlencoded || []).map(p => encodeURIComponent(p.key || '') + '=' + encodeURIComponent(p.value || '')).join('&');
+                    }
+                }
+                newFavorites.push({
+                    id: _uid(),
+                    name: item.name || (method + ' ' + url),
+                    folder_id: parentFolderId,
+                    request: { method, url, headers, body_type: bodyType, body, timeout: 30 },
+                    response: null,
+                    created_at: Math.floor(Date.now() / 1000),
+                });
+            }
         });
     }
-    if (entries.length === 0) {
-        list.innerHTML = '<div style="color:var(--text-secondary);padding:20px;text-align:center">暂无数据</div>';
-        return;
-    }
+
+    // 从根集合开始递归解析
+    parseItems(parsed.item, rootFolderId);
+
+    _httpFolders = [..._httpFolders, ...newFolders];
+    const existingIds = new Set(_httpFavorites.map(e => e.id));
+    const addedFavs = newFavorites.filter(e => !existingIds.has(e.id));
+    _httpFavorites = [..._httpFavorites, ...addedFavs];
+    try {
+        await invoke('http_save_folders', { folders: _httpFolders });
+        await invoke('http_save_favorites', { entries: _httpFavorites });
+    } catch(er) {}
+    // 自动展开根集合
+    _httpExpandedFolders.add(rootFolderId);
+    alert('已从 Postman 导入集合「' + collectionName + '」：' + (newFolders.length - 1) + ' 个子集合，' + addedFavs.length + ' 个接口');
+}
+
+async function _importFromHar(parsed) {
+    const entries = (parsed.log && parsed.log.entries) || [];
+    const newItems = entries.map(entry => {
+        const req = entry.request || {};
+        const method = (req.method || 'GET').toUpperCase();
+        const url = req.url || '';
+        if (!url) return null;
+        const headers = {};
+        (req.headers || []).forEach(h => { headers[h.name] = h.value; });
+        let bodyType = 'none', body = '';
+        if (req.postData) {
+            const mime = req.postData.mimeType || '';
+            bodyType = mime.includes('json') ? 'json' : mime.includes('form') ? 'urlencoded' : 'text';
+            body = req.postData.text || '';
+        }
+        return {
+            id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+            request: { method, url, headers, body_type: bodyType, body, timeout: 30 },
+            response: null,
+            created_at: entry.startedDateTime ? Math.floor(new Date(entry.startedDateTime).getTime() / 1000) : Math.floor(Date.now() / 1000),
+        };
+    }).filter(Boolean);
+    const existingUrls = new Set(_httpHistory.map(e => e.request?.url));
+    const added = newItems.filter(e => !existingUrls.has(e.request.url));
+    _httpHistory = [...added, ..._httpHistory].slice(0, 200);
+    try { await invoke('http_save_history', { entries: _httpHistory }); } catch(er) {}
+    alert('已从 HAR 导入 ' + added.length + ' 条记录到历史');
+}
+
+async function _importInternalHistory(parsed) {
+    const entries = parsed.data || (Array.isArray(parsed) ? parsed : []);
+    const existingUrls = new Set(_httpHistory.map(e => e.request?.url));
+    const added = entries.filter(e => e.request && !existingUrls.has(e.request.url));
+    _httpHistory = [...added, ..._httpHistory].slice(0, 200);
+    try { await invoke('http_save_history', { entries: _httpHistory }); } catch(er) {}
+    alert('已导入 ' + added.length + ' 条历史记录');
+}
+
+async function _importInternalCollections(parsed) {
+    const now = Math.floor(Date.now() / 1000);
+    const newFolders = (parsed.folders || []).map(f => ({ created_at: now, ...f }));
+    const entries = parsed.data || (Array.isArray(parsed) ? parsed : []);
+    const existingFolderIds = new Set(_httpFolders.map(f => f.id));
+    const addedFolders = newFolders.filter(f => f.id && !existingFolderIds.has(f.id));
+    _httpFolders = [..._httpFolders, ...addedFolders];
+    const existingIds = new Set(_httpFavorites.map(e => e.id));
+    const addedEntries = entries.filter(e => e.id && !existingIds.has(e.id));
+    _httpFavorites = [..._httpFavorites, ...addedEntries];
+    try {
+        await invoke('http_save_folders', { folders: _httpFolders });
+        await invoke('http_save_favorites', { entries: _httpFavorites });
+    } catch(er) {}
+    alert('已导入 ' + addedFolders.length + ' 个集合，' + addedEntries.length + ' 个接口');
+}
+
+function renderHttpPanelList() {
+    if (_httpPanelMode === 'history') { renderHttpHistoryList(); }
+    else { renderCollectionTree(); }
+}
+
+function renderHttpHistoryList() {
+    const list = document.getElementById('http-panel-list');
+    const searchQ = (document.getElementById('http-panel-search')?.value || '').toLowerCase().trim();
     const methodColors = { GET:'#00d68f', POST:'#ff9f43', PUT:'#448aff', DELETE:'#ff6b6b', PATCH:'#a855f7', HEAD:'#6c5ce7', OPTIONS:'#8b8fa3' };
-    const arr = _httpPanelMode === 'history' ? '_httpHistory' : '_httpFavorites';
-    list.innerHTML = entries.map((entry, i) => {
+    const clearBtn = '<div class="http-history-toolbar"><button class="btn btn-ghost btn-sm" onclick="clearHttpHistory()">🗑 清空历史</button></div>';
+    let itemsHtml = '';
+    _httpHistory.forEach((entry, i) => {
+        const urlStr = (entry.request.url || '').toLowerCase();
+        if (searchQ && !urlStr.includes(searchQ)) return;
         const color = methodColors[entry.request.method] || '#e4e6f0';
-        const time = entry.created_at ? new Date(entry.created_at * 1000).toLocaleString('zh-CN') : '';
-        const name = entry.name || entry.request.url;
-        const folderObj = entry.folder_id ? _httpFolders.find(f => f.id === entry.folder_id) : null;
-        const folderTag = folderObj ? '<span class="http-folder-tag">' + escapeHtml(folderObj.name) + '</span>' : '';
-        const renameBtn = _httpPanelMode === 'favorites' ? '<span class="http-fav-rename" onclick="event.stopPropagation();showRenameFavModal(\'' + escapeHtmlAttr(entry.id) + '\')" title="重命名">✎</span>' : '';
-        return '<div class="http-history-item" onclick="loadHttpEntry(' + arr + '[' + i + '])">' +
+        const time = entry.created_at ? new Date(entry.created_at * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+        itemsHtml += '<div class="http-history-item" onclick="loadHttpEntry(_httpHistory[' + i + '])">' +
             '<span class="http-history-method" style="color:' + color + '">' + entry.request.method + '</span>' +
-            '<span class="http-history-url">' + escapeHtml(name.length > 60 ? name.slice(0, 60) + '...' : name) + '</span>' +
-            folderTag +
+            '<span class="http-history-info"><span class="http-history-name">' + escapeHtml(entry.request.url) + '</span></span>' +
             '<span class="http-history-time">' + time + '</span>' +
-            renameBtn +
             '<button class="kv-remove" onclick="event.stopPropagation();removeHttpEntry(' + i + ')">✕</button>' +
             '</div>';
-    }).join('');
+    });
+    if (!itemsHtml) {
+        itemsHtml = '<div style="color:var(--text-secondary);padding:20px;text-align:center">' + (searchQ ? '无匹配记录' : '暂无历史记录') + '</div>';
+    }
+    list.innerHTML = clearBtn + itemsHtml;
+}
+
+function renderCollectionTree() {
+    const list = document.getElementById('http-panel-list');
+    const searchQ = (document.getElementById('http-panel-search')?.value || '').toLowerCase().trim();
+    const methodColors = { GET:'#00d68f', POST:'#ff9f43', PUT:'#448aff', DELETE:'#ff6b6b', PATCH:'#a855f7', HEAD:'#6c5ce7', OPTIONS:'#8b8fa3' };
+
+    function matchEntry(e) {
+        return !searchQ ||
+            (e.name || '').toLowerCase().includes(searchQ) ||
+            (e.request.url || '').toLowerCase().includes(searchQ);
+    }
+
+    // 递归统计某集合（含所有子集合）下匹配的请求数
+    function countDeep(node) {
+        const ids = getFolderDescendants(node.id);
+        return _httpFavorites.filter(e => ids.includes(e.folder_id) && matchEntry(e)).length;
+    }
+
+    // 递归判断某节点是否有任何可见内容（用于搜索剪枝）
+    function hasVisible(node) {
+        if (countDeep(node) > 0) return true;
+        if (!searchQ) return true; // 不搜索时始终显示
+        return false;
+    }
+
+    function renderReqItem(entry, depth) {
+        const color = methodColors[entry.request.method] || '#e4e6f0';
+        const hasCustomName = entry.name && entry.name !== entry.request.url;
+        const displayName = hasCustomName ? entry.name : entry.request.url;
+        const eid = escapeHtmlAttr(entry.id);
+        const leftPad = 24 + depth * 16;
+        return '<div class="http-coll-req-item" style="padding-left:' + leftPad + 'px" onclick="loadHttpFavById(\'' + eid + '\')">' +
+            '<span class="http-history-method" style="color:' + color + ';min-width:46px">' + entry.request.method + '</span>' +
+            '<span class="http-history-info">' +
+                '<span class="http-history-name">' + escapeHtml(displayName) + '</span>' +
+                (hasCustomName ? '<div class="http-panel-item-url">' + escapeHtml(entry.request.url) + '</div>' : '') +
+            '</span>' +
+            '<span class="http-coll-req-actions">' +
+                '<span class="http-coll-action" onclick="event.stopPropagation();showRenameFavModal(\'' + eid + '\')" title="重命名">✎</span>' +
+                '<span class="http-coll-action http-coll-action-del" onclick="event.stopPropagation();removeHttpFavById(\'' + eid + '\')" title="删除">✕</span>' +
+            '</span>' +
+            '</div>';
+    }
+
+    // 递归渲染集合节点（node 来自 buildFolderTree）
+    function renderNode(node, depth) {
+        if (!hasVisible(node)) return '';
+        const expanded = _httpExpandedFolders.has(node.id);
+        const cid = escapeHtmlAttr(node.id);
+        const totalCount = countDeep(node);
+        const headerPad = 12 + depth * 16;
+
+        const addReqBtn = '<button class="http-coll-add-req" onclick="event.stopPropagation();addCurrentToCollection(\'' + cid + '\')" title="添加当前请求">+</button>';
+        const addSubBtn = '<span class="http-coll-action" onclick="event.stopPropagation();showAddFolderModal(\'' + cid + '\')" title="新建子集合">⊕</span>';
+        const editBtns =
+            '<span class="http-coll-action" onclick="event.stopPropagation();showRenameFolderModal(\'' + cid + '\')" title="重命名">✎</span>' +
+            '<span class="http-coll-action http-coll-action-del" onclick="event.stopPropagation();showDeleteFolderModal(\'' + cid + '\')" title="删除">✕</span>';
+
+        const header =
+            '<div class="http-coll-header" style="padding-left:' + headerPad + 'px" onclick="toggleCollectionExpand(\'' + cid + '\')">' +
+                '<span class="http-coll-arrow">' + (expanded ? '▼' : '▶') + '</span>' +
+                '<span class="http-coll-name">' + escapeHtml(node.name) + '</span>' +
+                (totalCount > 0 ? '<span class="http-coll-count">' + totalCount + '</span>' : '') +
+                '<span class="http-coll-actions">' + addReqBtn + addSubBtn + editBtns + '</span>' +
+            '</div>';
+
+        if (!expanded) return '<div class="http-coll-section">' + header + '</div>';
+
+        // 展开内容：先子集合，再本层直属请求
+        let bodyHtml = '';
+        if (node.children && node.children.length > 0) {
+            node.children.forEach(child => { bodyHtml += renderNode(child, depth + 1); });
+        }
+        const directReqs = _httpFavorites.filter(e => e.folder_id === node.id && matchEntry(e));
+        if (directReqs.length > 0) {
+            bodyHtml += directReqs.map(e => renderReqItem(e, depth)).join('');
+        }
+        if (!bodyHtml) {
+            bodyHtml = '<div class="http-coll-empty-req" style="padding-left:' + (28 + depth * 16) + 'px">暂无接口，点击 + 添加</div>';
+        }
+
+        return '<div class="http-coll-section">' + header + '<div class="http-coll-requests">' + bodyHtml + '</div></div>';
+    }
+
+    const tree = buildFolderTree();
+    let html = '';
+    tree.forEach(node => { html += renderNode(node, 0); });
+
+    // 未分类（没有 folder_id 的请求）
+    const uncategorized = _httpFavorites.filter(e => !e.folder_id && matchEntry(e));
+    if (uncategorized.length > 0) {
+        const uncatExp = _httpExpandedFolders.has('__uncategorized__');
+        const clearUncatBtn = '<span class="http-coll-action http-coll-action-del" onclick="event.stopPropagation();clearUncategorized()" title="清空未分类">🗑</span>';
+        html +=
+            '<div class="http-coll-section">' +
+                '<div class="http-coll-header" onclick="toggleCollectionExpand(\'__uncategorized__\')">' +
+                    '<span class="http-coll-arrow">' + (uncatExp ? '▼' : '▶') + '</span>' +
+                    '<span class="http-coll-name" style="color:var(--text-secondary);font-style:italic">未分类</span>' +
+                    '<span class="http-coll-count">' + uncategorized.length + '</span>' +
+                    '<span class="http-coll-actions">' + clearUncatBtn + '</span>' +
+                '</div>' +
+                (uncatExp ? '<div class="http-coll-requests">' + uncategorized.map(e => renderReqItem(e, 0)).join('') + '</div>' : '') +
+            '</div>';
+    }
+
+    if (!html && !uncategorized.length) {
+        html = '<div class="http-coll-empty">' + (searchQ ? '无匹配结果' : '暂无集合<br><small>创建集合来整理接口</small>') + '</div>';
+    }
+    html += '<div class="http-coll-add-section" onclick="showAddFolderModal(null)">+ 新建集合</div>';
+    list.innerHTML = html;
+}
+
+function loadHttpFavById(id) {
+    const entry = _httpFavorites.find(e => e.id === id);
+    if (entry) loadHttpEntry(entry);
+}
+
+async function removeHttpFavById(id) {
+    const idx = _httpFavorites.findIndex(e => e.id === id);
+    if (idx < 0) return;
+    _httpFavorites.splice(idx, 1);
+    try { await invoke('http_save_favorites', { entries: _httpFavorites }); } catch(e) {}
+    renderHttpPanelList();
+}
+
+function clearUncategorized() {
+    const count = _httpFavorites.filter(e => !e.folder_id).length;
+    if (!count) return;
+    showHttpConfirm('确定删除全部 ' + count + ' 个未分类接口？', async () => {
+        _httpFavorites = _httpFavorites.filter(e => e.folder_id);
+        try { await invoke('http_save_favorites', { entries: _httpFavorites }); } catch(e) {}
+        renderHttpPanelList();
+    });
+}
+
+async function addCurrentToCollection(folderId) {
+    const url = document.getElementById('http-url').value.trim();
+    if (!url) { alert('请先输入请求 URL'); return; }
+    const method = document.getElementById('http-method').value;
+    await addHttpFavorite(method + ' ' + url, folderId);
+    _httpExpandedFolders.add(folderId);
+    renderHttpPanelList();
 }
 
 function loadHttpEntry(entry) {
@@ -3520,6 +4081,13 @@ function loadHttpEntry(entry) {
             switchHttpTab('request', 'body');
         }
     } finally { _httpParamsSyncing = false; }
+    // 收藏有自定义名称时同步到当前 tab
+    const activeTab = _reqTabs.find(t => t.id === _reqActiveTabId);
+    if (activeTab) {
+        activeTab.customName = (entry.name && entry.name !== entry.request.url) ? entry.name : '';
+        renderReqTabs();
+        saveReqTabsToStorage();
+    }
     closeHttpPanel();
 }
 
@@ -3562,9 +4130,13 @@ async function clearHttpHistory() {
 }
 
 async function clearHttpFavorites() {
-    showHttpConfirm('确定清空所有收藏？', async () => {
+    showHttpConfirm('确定清空所有集合和接口？', async () => {
         _httpFavorites = [];
-        try { await invoke('http_save_favorites', { entries: [] }); } catch(e) {}
+        _httpFolders = [];
+        try {
+            await invoke('http_save_favorites', { entries: [] });
+            await invoke('http_save_folders', { folders: [] });
+        } catch(e) {}
         renderHttpPanelList();
     });
 }

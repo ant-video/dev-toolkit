@@ -99,7 +99,6 @@
         <main class="content">
             <!-- HTTP 请求工具 -->
             <div class="page active" id="page-http-client">
-                <h2>🌐 HTTP 请求</h2>
                 <!-- 多请求 Tab 栏 -->
                 <div class="http-req-tabbar">
                     <div id="http-req-tabs-container" class="http-req-tabs-container"></div>
@@ -121,7 +120,8 @@
                         <button class="btn btn-primary" onclick="sendHttpRequest()" id="http-send-btn">发送</button>
                     </div>
                     <div class="http-action-bar">
-                        <button class="btn btn-ghost btn-sm" onclick="showAddFavoriteModal()">⭐ 收藏</button>
+                        <button class="btn btn-ghost btn-sm" onclick="showAddFavoriteModal()">💾 保存</button>
+                        <button class="btn btn-ghost btn-sm" onclick="toggleHttpPanel('collections')">📁 集合</button>
                         <button class="btn btn-ghost btn-sm" onclick="toggleHttpPanel('history')">📜 历史</button>
                         <button class="btn btn-ghost btn-sm" onclick="showHttpEnvModal()">🌍 环境变量</button>
                         <span class="http-action-separator"></span>
@@ -200,6 +200,7 @@
                                 <div class="http-body-toolbar">
                                     <button class="btn btn-ghost btn-sm" onclick="formatHttpBodyJson('beautify')">美化</button>
                                     <button class="btn btn-ghost btn-sm" onclick="formatHttpBodyJson('minify')">压缩</button>
+                                    <span id="http-body-json-status" class="http-body-json-status"></span>
                                 </div>
                                 <div id="http-body-editor" class="code-editor resizable" data-min-h="60" data-default-h="160"></div>
                             </div>
@@ -269,6 +270,8 @@
                                 <button class="http-tab" onclick="switchHttpTab('response','headers')">Headers</button>
                                 <button class="http-tab" onclick="switchHttpTab('response','raw')">Raw</button>
                                 <button class="http-tab-search-btn" onclick="openHttpResponseSearch()" title="搜索响应 (⌘F)">🔍</button>
+                                <button class="http-tab-search-btn" onclick="copyHttpResponseBody()" id="http-response-copy-btn" title="复制响应内容">📋</button>
+                                <button class="http-tab-search-btn" onclick="showExtractVarModal()" title="提取字段到环境变量">📌</button>
                             </div>
                             <div class="http-tab-content active" id="http-response-tab-body">
                                 <div id="http-response-size-warning" style="display:none" class="http-size-warning">
@@ -290,6 +293,9 @@
                                 <div id="http-response-body-editor" class="code-editor resizable" data-min-h="80" data-default-h="260"></div>
                             </div>
                             <div class="http-tab-content" id="http-response-tab-headers">
+                                <div class="http-resp-headers-search-wrap">
+                                    <input id="http-resp-headers-search" class="http-resp-headers-search" placeholder="过滤响应头..." oninput="filterResponseHeaders(this.value)">
+                                </div>
                                 <div id="http-response-headers-grid" class="http-headers-grid"></div>
                             </div>
                             <div class="http-tab-content" id="http-response-tab-raw">
@@ -299,36 +305,38 @@
                     </div>
                     </div>
 
-                    <!-- 历史/收藏侧滑面板 -->
+                    <!-- 历史/集合面板 -->
                     <div class="http-panel" id="http-panel" style="display:none">
                         <div class="http-panel-header">
-                            <span id="http-panel-title">历史记录</span>
-                            <button class="btn btn-ghost btn-sm" onclick="closeHttpPanel()">✕</button>
+                            <div class="http-panel-header-tabs">
+                                <button class="http-panel-tab" data-mode="history" onclick="switchHttpPanelMode('history')">历史</button>
+                                <button class="http-panel-tab active" data-mode="collections" onclick="switchHttpPanelMode('collections')">集合</button>
+                            </div>
+                            <div class="http-panel-header-right">
+                                <button class="btn-icon" onclick="exportHttpData()" title="导出">⬇</button>
+                                <button class="btn-icon" onclick="importHttpData()" title="导入">⬆</button>
+                                <button class="btn-icon" onclick="closeHttpPanel()" title="关闭">✕</button>
+                            </div>
                         </div>
-                        <div class="http-panel-tabs" id="http-panel-tabs">
-                            <button class="http-panel-tab active" onclick="switchHttpPanelMode('history')">历史</button>
-                            <button class="http-panel-tab" onclick="switchHttpPanelMode('favorites')">收藏</button>
-                        </div>
+                        <input type="file" id="http-import-file" accept=".json,.har" style="display:none" onchange="onHttpImportFile(event)">
                         <div class="http-panel-search-wrap">
                             <input type="text" id="http-panel-search" class="http-panel-search"
-                                   placeholder="搜索 URL 或名称..." autocomplete="off"
+                                   placeholder="搜索..." autocomplete="off"
                                    oninput="renderHttpPanelList()">
                         </div>
-                        <div class="http-panel-folders" id="http-panel-folders" style="display:none"></div>
-                        <div class="http-panel-actions" id="http-panel-actions"></div>
                         <div class="http-panel-list" id="http-panel-list"></div>
                     </div>
-                <!-- 添加收藏模态框 -->
+                <!-- 保存到集合模态框 -->
                     <div id="http-favorite-modal" class="modal-overlay" style="display:none">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <span>添加收藏</span>
+                                <span>保存到集合</span>
                                 <button class="modal-close" onclick="closeFavoriteModal()">✕</button>
                             </div>
                             <div class="modal-body">
-                                <label>收藏名称</label>
-                                <input type="text" id="http-favorite-name" class="input-field" placeholder="输入收藏名称">
-                                <label>所属文件夹</label>
+                                <label>接口名称</label>
+                                <input type="text" id="http-favorite-name" class="input-field" placeholder="输入接口名称">
+                                <label>所属集合</label>
                                 <div class="folder-select-row">
                                     <select id="http-favorite-folder" class="select-field"></select>
                                     <button class="btn btn-ghost btn-sm" onclick="showAddFolderModal(null, 'favorite')">新建</button>
@@ -336,27 +344,26 @@
                             </div>
                             <div class="modal-footer">
                                 <button class="btn btn-secondary" onclick="closeFavoriteModal()">取消</button>
-                                <button class="btn btn-primary" onclick="confirmAddFavorite()">确定</button>
+                                <button class="btn btn-primary" onclick="confirmAddFavorite()">保存</button>
                             </div>
                         </div>
                     </div>
 
-                    <!-- 新建文件夹模态框 -->
+                    <!-- 新建集合模态框 -->
                     <div id="http-folder-modal" class="modal-overlay" style="display:none">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <span>新建文件夹</span>
+                                <span>新建集合</span>
                                 <button class="modal-close" onclick="closeFolderModal()">✕</button>
                             </div>
                             <div class="modal-body">
-                                <label>文件夹名称</label>
-                                <input type="text" id="http-folder-name" class="input-field" placeholder="输入文件夹名称">
-                                <label>父文件夹</label>
-                                <select id="http-folder-parent" class="select-field"></select>
+                                <label>集合名称</label>
+                                <input type="text" id="http-folder-name" class="input-field" placeholder="如：用户管理、订单接口">
+                                <select id="http-folder-parent" class="select-field" style="display:none"></select>
                             </div>
                             <div class="modal-footer">
                                 <button class="btn btn-secondary" onclick="closeFolderModal()">取消</button>
-                                <button class="btn btn-primary" onclick="confirmAddFolder()">确定</button>
+                                <button class="btn btn-primary" onclick="confirmAddFolder()">创建</button>
                             </div>
                         </div>
                     </div>
@@ -378,15 +385,15 @@
                         </div>
                     </div>
 
-                    <!-- 重命名文件夹模态框 -->
+                    <!-- 重命名集合模态框 -->
                     <div id="http-rename-modal" class="modal-overlay" style="display:none">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <span>重命名文件夹</span>
+                                <span>重命名集合</span>
                                 <button class="modal-close" onclick="closeRenameFolderModal()">✕</button>
                             </div>
                             <div class="modal-body">
-                                <label>文件夹名称</label>
+                                <label>集合名称</label>
                                 <input type="text" id="http-rename-name" class="input-field" placeholder="输入新名称">
                             </div>
                             <div class="modal-footer">
@@ -396,11 +403,11 @@
                         </div>
                     </div>
 
-                    <!-- 删除文件夹模态框 -->
+                    <!-- 删除集合模态框 -->
                     <div id="http-delete-modal" class="modal-overlay" style="display:none">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <span>删除文件夹</span>
+                                <span>删除集合</span>
                                 <button class="modal-close" onclick="closeDeleteFolderModal()">✕</button>
                             </div>
                             <div class="modal-body">
@@ -413,20 +420,41 @@
                         </div>
                     </div>
 
-                    <!-- 重命名收藏模态框 -->
+                    <!-- 重命名接口模态框 -->
                     <div id="http-rename-fav-modal" class="modal-overlay" style="display:none">
                         <div class="modal-content">
                             <div class="modal-header">
-                                <span>重命名收藏</span>
+                                <span>重命名接口</span>
                                 <button class="modal-close" onclick="closeRenameFavModal()">✕</button>
                             </div>
                             <div class="modal-body">
-                                <label>收藏名称</label>
+                                <label>接口名称</label>
                                 <input type="text" id="http-rename-fav-name" class="input-field" placeholder="输入新名称">
                             </div>
                             <div class="modal-footer">
                                 <button class="btn btn-secondary" onclick="closeRenameFavModal()">取消</button>
                                 <button class="btn btn-primary" onclick="confirmRenameFav()">确定</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 提取响应字段到环境变量 -->
+                    <div id="http-extract-var-modal" class="modal-overlay" style="display:none">
+                        <div class="modal-content" style="width:460px;max-width:90vw">
+                            <div class="modal-header">
+                                <span>提取响应字段到环境变量</span>
+                                <button class="modal-close" onclick="closeExtractVarModal()">✕</button>
+                            </div>
+                            <div class="modal-body">
+                                <label>JSON Path（如 <code>data.token</code>）</label>
+                                <input type="text" id="http-extract-path" class="input-field" placeholder="data.token 或留空取全部">
+                                <div id="http-extract-preview" class="http-extract-preview"></div>
+                                <label style="margin-top:10px">保存为变量名</label>
+                                <input type="text" id="http-extract-varname" class="input-field" placeholder="MY_TOKEN">
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-ghost" onclick="closeExtractVarModal()">取消</button>
+                                <button class="btn btn-primary" onclick="confirmExtractVar()">提取</button>
                             </div>
                         </div>
                     </div>
@@ -464,6 +492,29 @@
                             <div class="modal-footer">
                                 <button class="btn btn-secondary" onclick="closeCurlImportModal()">取消</button>
                                 <button class="btn btn-primary" onclick="importCurlCommand()">导入</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 导出格式选择模态框 -->
+                    <div id="http-export-modal" class="modal-overlay" style="display:none">
+                        <div class="modal-content" style="width:360px">
+                            <div class="modal-header">
+                                <span>选择导出格式</span>
+                                <button class="modal-close" onclick="closeHttpExportModal()">✕</button>
+                            </div>
+                            <div class="modal-body" style="display:flex;flex-direction:column;gap:10px;padding:16px">
+                                <button class="http-export-format-btn" onclick="exportAsInternal()">
+                                    <div class="http-export-format-name">DevToolkit 内部格式</div>
+                                    <div class="http-export-format-desc">用于备份 / 恢复，保留完整数据结构</div>
+                                </button>
+                                <button class="http-export-format-btn" onclick="exportAsPostman()">
+                                    <div class="http-export-format-name">Postman Collection v2.1</div>
+                                    <div class="http-export-format-desc">兼容 Postman / Reqable / Insomnia 等工具</div>
+                                </button>
+                            </div>
+                            <div class="modal-footer">
+                                <button class="btn btn-secondary" onclick="closeHttpExportModal()">取消</button>
                             </div>
                         </div>
                     </div>
