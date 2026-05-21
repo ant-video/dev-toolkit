@@ -3009,11 +3009,23 @@ body {
 
 /* 数据编辑器弹窗 */
 .db-editor-modal {
-    width: 90%;
-    max-width: 1200px;
-    height: 80vh;
+    width: 95vw !important;
+    max-width: 95vw !important;
+    height: 90vh !important;
+    max-height: 90vh !important;
     display: flex;
     flex-direction: column;
+    padding: 0 !important;
+}
+
+.db-editor-modal .modal-header {
+    flex-shrink: 0;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.db-editor-modal .modal-header h3 {
+    margin: 0;
 }
 
 .db-editor-toolbar {
@@ -3035,6 +3047,7 @@ body {
     flex: 1;
     overflow: auto;
     background: var(--bg-primary);
+    min-height: 0;
 }
 
 .db-editor-table {
