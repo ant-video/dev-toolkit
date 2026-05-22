@@ -161,6 +161,23 @@ pub fn run() {
             commands::ssh_get_groups,
             commands::ssh_import_sessions,
             commands::ssh_export_sessions,
+            // SSH连接管理
+            commands::ssh_connect,
+            commands::ssh_disconnect,
+            commands::ssh_create_pty,
+            commands::ssh_resize_pty,
+            commands::ssh_write,
+            // SFTP操作
+            commands::ssh_sftp_list_dir,
+            commands::ssh_sftp_read_file,
+            commands::ssh_sftp_write_file,
+            commands::ssh_sftp_mkdir,
+            commands::ssh_sftp_remove,
+            // 系统监控
+            commands::ssh_monitor_data,
+            commands::ssh_monitor_processes,
+            commands::ssh_monitor_kill_process,
+            commands::ssh_docker_list,
         ])
         .setup(move |app| {
             let gs = app.global_shortcut();

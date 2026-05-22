@@ -3059,3 +3059,367 @@ pub fn ssh_export_sessions(ids: Vec<String>) -> Result<String, String> {
     serde_json::to_string_pretty(&filtered)
         .map_err(|e| format!("导出失败: {}", e))
 }
+
+// ==================== SSH 连接管理 ====================
+
+/// SSH连接
+#[tauri::command]
+pub async fn ssh_connect(
+    app: tauri::AppHandle,
+    session_id: String,
+    session: SshSession,
+) -> Result<String, String> {
+    crate::ssh::session::SSH_MANAGER
+        .connect(&session, app)
+        .await
+}
+
+/// SSH断开连接
+#[tauri::command]
+pub async fn ssh_disconnect(connection_id: String) -> Result<(), String> {
+    crate::ssh::session::SSH_MANAGER
+        .disconnect(&connection_id)
+        .await
+}
+
+/// 创建PTY终端
+#[tauri::command]
+pub async fn ssh_create_pty(
+    connection_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let channel = conn.create_pty(cols, rows)?;
+
+    // 保存channel到全局管理器
+    lazy_static::lazy_static! {
+        static ref PTY_CHANNELS: Arc<RwLock<std::collections::HashMap<String, ssh2::Channel>>> =
+            Arc::new(RwLock::new(std::collections::HashMap::new()));
+    }
+
+    {
+        let mut channels = PTY_CHANNELS.write().await;
+        channels.insert(connection_id.clone(), channel);
+    }
+
+    Ok(())
+}
+
+/// 调整PTY大小
+#[tauri::command]
+pub async fn ssh_resize_pty(
+    connection_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    lazy_static::lazy_static! {
+        static ref PTY_CHANNELS: Arc<RwLock<std::collections::HashMap<String, ssh2::Channel>>> =
+            Arc::new(RwLock::new(std::collections::HashMap::new()));
+    }
+
+    let mut channels = PTY_CHANNELS.write().await;
+    if let Some(channel) = channels.get_mut(&connection_id) {
+        channel.request_pty_size(cols as u32, rows as u32, Some(0), Some(0))
+            .map_err(|e| format!("调整大小失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// 写入数据到SSH通道
+#[tauri::command]
+pub async fn ssh_write(
+    connection_id: String,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    lazy_static::lazy_static! {
+        static ref PTY_CHANNELS: Arc<RwLock<std::collections::HashMap<String, ssh2::Channel>>> =
+            Arc::new(RwLock::new(std::collections::HashMap::new()));
+    }
+
+    let mut channels = PTY_CHANNELS.write().await;
+    if let Some(channel) = channels.get_mut(&connection_id) {
+        use std::io::Write;
+        channel.write_all(&data)
+            .map_err(|e| format!("写入失败: {}", e))?;
+    }
+
+    Ok(())
+}
+
+// ==================== SFTP 操作 ====================
+
+/// SFTP列出目录
+#[tauri::command]
+pub async fn ssh_sftp_list_dir(
+    connection_id: String,
+    path: String,
+) -> Result<Vec<crate::ssh::sftp::SftpEntry>, String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let sftp = conn.create_sftp()?;
+    crate::ssh::sftp::list_dir(&sftp, &path)
+}
+
+/// SFTP读取文件
+#[tauri::command]
+pub async fn ssh_sftp_read_file(
+    connection_id: String,
+    path: String,
+) -> Result<String, String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let sftp = conn.create_sftp()?;
+    crate::ssh::sftp::read_file(&sftp, &path)
+}
+
+/// SFTP写入文件
+#[tauri::command]
+pub async fn ssh_sftp_write_file(
+    connection_id: String,
+    path: String,
+    content: String,
+) -> Result<(), String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let sftp = conn.create_sftp()?;
+    crate::ssh::sftp::write_file(&sftp, &path, &content)
+}
+
+/// SFTP创建目录
+#[tauri::command]
+pub async fn ssh_sftp_mkdir(
+    connection_id: String,
+    path: String,
+) -> Result<(), String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let sftp = conn.create_sftp()?;
+    crate::ssh::sftp::mkdir(&sftp, &path)
+}
+
+/// SFTP删除文件
+#[tauri::command]
+pub async fn ssh_sftp_remove(
+    connection_id: String,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let sftp = conn.create_sftp()?;
+    if is_dir {
+        crate::ssh::sftp::remove_dir(&sftp, &path)
+    } else {
+        crate::ssh::sftp::remove_file(&sftp, &path)
+    }
+}
+
+// ==================== 系统监控 ====================
+
+/// 系统监控数据
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SystemMonitorData {
+    pub cpu_usage: Vec<f32>,
+    pub memory: MemoryInfo,
+    pub disk: Vec<DiskInfo>,
+    pub network: NetworkInfo,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct MemoryInfo {
+    pub total: u64,
+    pub used: u64,
+    pub free: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DiskInfo {
+    pub name: String,
+    pub total: u64,
+    pub used: u64,
+    pub usage: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NetworkInfo {
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub user: String,
+    pub cpu: f32,
+    pub mem: f32,
+    pub command: String,
+}
+
+/// 获取系统监控数据
+#[tauri::command]
+pub async fn ssh_monitor_data(
+    connection_id: String,
+) -> Result<SystemMonitorData, String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let mut channel = conn.session.channel_session()
+        .map_err(|e| format!("创建通道失败: {}", e))?;
+
+    // 执行命令获取系统信息
+    channel.exec("cat /proc/loadavg 2>/dev/null || echo '0 0 0'")
+        .map_err(|e| format!("执行命令失败: {}", e))?;
+
+    let mut output = String::new();
+    use std::io::Read;
+    channel.read_to_string(&mut output).ok();
+    channel.close().ok();
+
+    // 解析CPU负载
+    let cpu_usage: Vec<f32> = output.split_whitespace()
+        .take(3)
+        .filter_map(|s| s.parse().ok())
+        .collect();
+
+    Ok(SystemMonitorData {
+        cpu_usage: if cpu_usage.is_empty() { vec![0.0] } else { cpu_usage },
+        memory: MemoryInfo { total: 0, used: 0, free: 0 },
+        disk: vec![],
+        network: NetworkInfo { rx_bytes: 0, tx_bytes: 0 },
+    })
+}
+
+/// 获取进程列表
+#[tauri::command]
+pub async fn ssh_monitor_processes(
+    connection_id: String,
+) -> Result<Vec<ProcessInfo>, String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let mut channel = conn.session.channel_session()
+        .map_err(|e| format!("创建通道失败: {}", e))?;
+
+    channel.exec("ps aux --sort=-%cpu 2>/dev/null | head -21 || ps aux | head -21")
+        .map_err(|e| format!("执行命令失败: {}", e))?;
+
+    let mut output = String::new();
+    use std::io::Read;
+    channel.read_to_string(&mut output).ok();
+    channel.close().ok();
+
+    let mut processes = Vec::new();
+    for line in output.lines().skip(1) {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 11 {
+            processes.push(ProcessInfo {
+                pid: parts[1].parse().unwrap_or(0),
+                user: parts[0].to_string(),
+                cpu: parts[2].parse().unwrap_or(0.0),
+                mem: parts[3].parse().unwrap_or(0.0),
+                command: parts[10..].join(" "),
+            });
+        }
+    }
+
+    Ok(processes)
+}
+
+/// 终止进程
+#[tauri::command]
+pub async fn ssh_monitor_kill_process(
+    connection_id: String,
+    pid: u32,
+) -> Result<(), String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let mut channel = conn.session.channel_session()
+        .map_err(|e| format!("创建通道失败: {}", e))?;
+
+    channel.exec(&format!("kill -9 {}", pid))
+        .map_err(|e| format!("执行命令失败: {}", e))?;
+
+    channel.close().ok();
+
+    Ok(())
+}
+
+/// Docker容器列表
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DockerContainer {
+    pub name: String,
+    pub image: String,
+    pub status: String,
+}
+
+#[tauri::command]
+pub async fn ssh_docker_list(
+    connection_id: String,
+) -> Result<Vec<DockerContainer>, String> {
+    let conn = crate::ssh::session::SSH_MANAGER
+        .get_connection(&connection_id)
+        .await
+        .ok_or("连接不存在")?;
+
+    let mut channel = conn.session.channel_session()
+        .map_err(|e| format!("创建通道失败: {}", e))?;
+
+    channel.exec("docker ps --format '{{.Names}}|{{.Image}}|{{.Status}}' 2>/dev/null || echo ''")
+        .map_err(|e| format!("执行命令失败: {}", e))?;
+
+    let mut output = String::new();
+    use std::io::Read;
+    channel.read_to_string(&mut output).ok();
+    channel.close().ok();
+
+    let mut containers = Vec::new();
+    for line in output.lines() {
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() >= 3 {
+            containers.push(DockerContainer {
+                name: parts[0].to_string(),
+                image: parts[1].to_string(),
+                status: parts[2].to_string(),
+            });
+        }
+    }
+
+    Ok(containers)
+}
