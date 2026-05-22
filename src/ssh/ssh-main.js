@@ -182,8 +182,9 @@ class SshMain {
         }
 
         if (save) {
+            const invoke = this.getTauriInvoke();
             try {
-                const saved = await window.__TAURI__.invoke('ssh_save_session', { session });
+                const saved = await invoke('ssh_save_session', { session });
                 session.id = saved.id;
                 if (window.sshSessionManager) {
                     await window.sshSessionManager.loadSessions();
@@ -208,6 +209,7 @@ class SshMain {
             return;
         }
 
+        const invoke = this.getTauriInvoke();
         const tabId = this.createTab('terminal', session.name || session.host, session.id);
 
         const content = document.getElementById(`tab-content-${tabId}`);
@@ -221,7 +223,7 @@ class SshMain {
         `;
 
         try {
-            const connectionId = await window.__TAURI__.invoke('ssh_connect', {
+            const connectionId = await invoke('ssh_connect', {
                 sessionId: session.id,
                 session: session
             });
@@ -305,8 +307,9 @@ class SshMain {
 
     closeTab(tabId) {
         const conn = this.connections.get(tabId);
-        if (conn && this.isTauriReady()) {
-            window.__TAURI__.invoke('ssh_disconnect', { connectionId: conn.connectionId });
+        const invoke = this.getTauriInvoke();
+        if (conn && invoke) {
+            invoke('ssh_disconnect', { connectionId: conn.connectionId });
             this.connections.delete(tabId);
         }
 

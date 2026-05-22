@@ -203,6 +203,9 @@ class SshSessionManager {
     }
 
     async duplicateSession(session) {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
         const newSession = {
             ...session,
             id: '',
@@ -210,7 +213,7 @@ class SshSessionManager {
         };
 
         try {
-            const result = await window.__TAURI__.invoke('ssh_save_session', { session: newSession });
+            const result = await invoke('ssh_save_session', { session: newSession });
             this.sessions.push(result);
             this.updateGroups();
             this.render();
@@ -221,6 +224,9 @@ class SshSessionManager {
     }
 
     async deleteSession(sessionId) {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
         const session = this.sessions.find(s => s.id === sessionId);
         if (!session) return;
 
@@ -228,7 +234,7 @@ class SshSessionManager {
         if (!confirmed) return;
 
         try {
-            await window.__TAURI__.invoke('ssh_delete_session', { id: sessionId });
+            await invoke('ssh_delete_session', { id: sessionId });
             this.sessions = this.sessions.filter(s => s.id !== sessionId);
             this.updateGroups();
             this.render();
