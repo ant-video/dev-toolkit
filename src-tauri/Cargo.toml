@@ -48,3 +48,8 @@ reqwest = { version = "0.12", features = ["json", "multipart"] }
 sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 deadpool = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+# SSH相关
+ssh2 = "0.9"
+whoami = "1.5"
+lazy_static = "1.4"
