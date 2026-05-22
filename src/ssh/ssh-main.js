@@ -9,8 +9,18 @@ class SshMain {
         this.init();
     }
 
+    // 检查 Tauri API 是否可用
+    isTauriReady() {
+        return window.__TAURI__ && window.__TAURI__.invoke;
+    }
+
     async init() {
-        this.bindEvents();
+        // 等待 DOM 准备好
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => this.bindEvents());
+        } else {
+            this.bindEvents();
+        }
     }
 
     bindEvents() {
@@ -114,6 +124,11 @@ class SshMain {
     }
 
     async handleConnect(save) {
+        if (!this.isTauriReady()) {
+            SSHUtils.showToast('Tauri API 未就绪，请稍后重试', 'error');
+            return;
+        }
+
         const form = document.getElementById('ssh-connect-form');
         if (!form) return;
 
@@ -168,6 +183,11 @@ class SshMain {
     }
 
     async connectToSession(session) {
+        if (!this.isTauriReady()) {
+            SSHUtils.showToast('Tauri API 未就绪，请稍后重试', 'error');
+            return;
+        }
+
         const tabId = this.createTab('terminal', session.name || session.host, session.id);
 
         const content = document.getElementById(`tab-content-${tabId}`);
@@ -265,7 +285,7 @@ class SshMain {
 
     closeTab(tabId) {
         const conn = this.connections.get(tabId);
-        if (conn) {
+        if (conn && this.isTauriReady()) {
             window.__TAURI__.invoke('ssh_disconnect', { connectionId: conn.connectionId });
             this.connections.delete(tabId);
         }

@@ -8008,3 +8008,21 @@ document.querySelectorAll('[data-page="database"]').forEach(item => {
         setTimeout(initDatabaseTool, 100);
     });
 });
+
+// SSH 页面初始化
+function initSshTool() {
+    // 确保 Tauri API 可用
+    if (!window.__TAURI__) {
+        console.warn('Tauri API 未就绪');
+        return;
+    }
+    // 触发会话管理器初始化
+    if (window.sshSessionManager && !window.sshSessionManager.initialized) {
+        window.sshSessionManager.init();
+    }
+}
+document.querySelectorAll('[data-page="ssh"]').forEach(item => {
+    item.addEventListener('click', () => {
+        setTimeout(initSshTool, 100);
+    });
+});

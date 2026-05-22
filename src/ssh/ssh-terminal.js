@@ -14,7 +14,16 @@ class SshTerminal {
         this.init();
     }
 
+    isTauriReady() {
+        return window.__TAURI__ && window.__TAURI__.invoke;
+    }
+
     async init() {
+        if (!this.isTauriReady()) {
+            console.error('Tauri API 未就绪');
+            return;
+        }
+
         this.term = new Terminal({
             fontSize: 14,
             fontFamily: 'Monaco, Menlo, "Courier New", monospace',
@@ -70,7 +79,7 @@ class SshTerminal {
 
     bindEvents() {
         this.term.onData(data => {
-            if (!this.disconnected) {
+            if (!this.disconnected && this.isTauriReady()) {
                 window.__TAURI__.invoke('ssh_write', {
                     connectionId: this.connectionId,
                     data: Array.from(new TextEncoder().encode(data))

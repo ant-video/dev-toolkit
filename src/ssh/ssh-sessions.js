@@ -7,24 +7,50 @@ class SshSessionManager {
         this.connections = new Map();
         this.selectedSession = null;
         this.expandedGroups = new Set(['默认']);
+        this.initialized = false;
 
-        this.init();
+        // 延迟初始化，等待 Tauri API 准备好
+        this.waitForTauriAndInit();
+    }
+
+    async waitForTauriAndInit() {
+        // 等待 Tauri API 准备好
+        let attempts = 0;
+        while (!window.__TAURI__ && attempts < 50) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+        }
+
+        if (!window.__TAURI__) {
+            console.warn('Tauri API 未就绪，SSH 会话管理器将在页面切换时初始化');
+            return;
+        }
+
+        await this.init();
     }
 
     async init() {
+        if (this.initialized) return;
+        this.initialized = true;
         await this.loadSessions();
         this.render();
         this.bindEvents();
     }
 
     async loadSessions() {
+        if (!window.__TAURI__) {
+            console.warn('Tauri API 不可用');
+            return;
+        }
         try {
             const result = await window.__TAURI__.invoke('ssh_list_sessions');
             this.sessions = result || [];
             this.updateGroups();
         } catch (e) {
             console.error('加载会话失败:', e);
-            SSHUtils.showToast('加载会话失败: ' + e, 'error');
+            if (typeof SSHUtils !== 'undefined') {
+                SSHUtils.showToast('加载会话失败: ' + e, 'error');
+            }
         }
     }
 
