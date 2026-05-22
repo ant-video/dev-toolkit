@@ -5186,3 +5186,768 @@ tr.db-spacer td {
     --bg-hover: rgba(108, 92, 231, 0.1);
     --bg-active: rgba(108, 92, 231, 0.15);
 }
+
+/* ==================== SSH 连接工具样式 ==================== */
+
+.ssh-container {
+    display: flex;
+    height: 100%;
+    background: var(--bg-primary);
+}
+
+/* 左侧边栏 */
+.ssh-sidebar {
+    width: 280px;
+    min-width: 200px;
+    max-width: 400px;
+    background: var(--bg-secondary);
+    border-right: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.ssh-sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ssh-sidebar-header h3 {
+    margin: 0;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.ssh-search {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ssh-search input {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.ssh-search input:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+/* 会话树 */
+.ssh-session-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.ssh-group {
+    margin-bottom: 4px;
+}
+
+.ssh-group-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    cursor: pointer;
+    user-select: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.ssh-group-header:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.ssh-group-icon {
+    margin-right: 8px;
+    transition: transform 0.2s;
+}
+
+.ssh-group.expanded .ssh-group-icon {
+    transform: rotate(90deg);
+}
+
+.ssh-group-sessions {
+    display: none;
+}
+
+.ssh-group.expanded .ssh-group-sessions {
+    display: block;
+}
+
+.ssh-session-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px 8px 32px;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: background 0.15s;
+}
+
+.ssh-session-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.ssh-session-item.active {
+    background: rgba(98, 114, 164, 0.2);
+}
+
+.ssh-session-status {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 10px;
+    background: var(--text-muted);
+}
+
+.ssh-session-status.connected {
+    background: #50fa7b;
+}
+
+.ssh-session-status.connecting {
+    background: #f1fa8c;
+    animation: pulse 1s infinite;
+}
+
+.ssh-session-status.error {
+    background: #ff5555;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.ssh-session-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ssh-session-actions {
+    display: none;
+    gap: 4px;
+}
+
+.ssh-session-item:hover .ssh-session-actions {
+    display: flex;
+}
+
+.ssh-session-action {
+    padding: 2px 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.ssh-session-action:hover {
+    color: var(--text-primary);
+}
+
+/* 侧边栏底部操作 */
+.ssh-sidebar-actions {
+    padding: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* 右侧工作区 */
+.ssh-workspace {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+/* 标签页 */
+.ssh-tabs {
+    display: flex;
+    align-items: center;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    min-height: 40px;
+    padding: 0 8px;
+    overflow-x: auto;
+}
+
+.ssh-tab {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    margin-right: 4px;
+    background: transparent;
+    border: none;
+    border-radius: 4px 4px 0 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+
+.ssh-tab:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.ssh-tab.active {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    margin-bottom: -1px;
+}
+
+.ssh-tab-icon {
+    margin-right: 8px;
+}
+
+.ssh-tab-title {
+    margin-right: 8px;
+}
+
+.ssh-tab-close {
+    width: 16px;
+    height: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    font-size: 12px;
+    opacity: 0.6;
+}
+
+.ssh-tab-close:hover {
+    opacity: 1;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.ssh-tab-status {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 8px;
+    background: var(--text-muted);
+}
+
+.ssh-tab-status.connected {
+    background: #50fa7b;
+}
+
+/* 内容区域 */
+.ssh-content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+/* 欢迎页面 */
+.ssh-welcome {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+}
+
+.ssh-welcome-icon {
+    font-size: 64px;
+    margin-bottom: 16px;
+}
+
+.ssh-welcome h2 {
+    margin: 0 0 8px 0;
+    color: var(--text-primary);
+}
+
+.ssh-welcome p {
+    margin: 0 0 24px 0;
+}
+
+.ssh-features {
+    display: flex;
+    gap: 32px;
+}
+
+.ssh-feature {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+.ssh-feature .icon {
+    font-size: 24px;
+}
+
+/* 按钮 */
+.ssh-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.ssh-btn-primary {
+    background: var(--accent-color);
+    color: white;
+}
+
+.ssh-btn-primary:hover {
+    background: #444a5f;
+}
+
+.ssh-btn-secondary {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+}
+
+.ssh-btn-secondary:hover {
+    background: var(--bg-tertiary);
+}
+
+.ssh-btn-danger {
+    background: #ff5555;
+    color: white;
+}
+
+.ssh-btn-danger:hover {
+    background: #ff3333;
+}
+
+/* 模态框 */
+.ssh-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ssh-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.ssh-modal-content {
+    position: relative;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    width: 480px;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.ssh-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ssh-modal-header h3 {
+    margin: 0;
+    font-size: 16px;
+    color: var(--text-primary);
+}
+
+.ssh-modal-close {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ssh-modal-close:hover {
+    color: var(--text-primary);
+}
+
+.ssh-modal-body {
+    padding: 20px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+.ssh-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 16px 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* 表单 */
+.ssh-form-group {
+    margin-bottom: 16px;
+}
+
+.ssh-form-group label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.ssh-form-group input,
+.ssh-form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.ssh-form-group input:focus,
+.ssh-form-group select:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+.ssh-form-row {
+    display: flex;
+    gap: 16px;
+}
+
+.ssh-form-flex-3 {
+    flex: 3;
+}
+
+.ssh-form-flex-1 {
+    flex: 1;
+}
+
+/* 终端容器 */
+.ssh-terminal-container {
+    width: 100%;
+    height: 100%;
+    background: #1e1e1e;
+}
+
+.ssh-terminal-container .xterm {
+    height: 100%;
+    padding: 8px;
+}
+
+/* 终端工具栏 */
+.ssh-terminal-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.ssh-terminal-toolbar .ssh-btn {
+    padding: 4px 8px;
+    font-size: 12px;
+}
+
+/* 分屏容器 */
+.ssh-split-container {
+    display: flex;
+    width: 100%;
+    height: 100%;
+}
+
+.ssh-split-pane {
+    flex: 1;
+    border-right: 1px solid var(--border-color);
+}
+
+.ssh-split-pane:last-child {
+    border-right: none;
+}
+
+.ssh-split-horizontal .ssh-split-pane {
+    border-right: 1px solid var(--border-color);
+    border-bottom: none;
+}
+
+.ssh-split-vertical {
+    flex-direction: column;
+}
+
+.ssh-split-vertical .ssh-split-pane {
+    border-bottom: 1px solid var(--border-color);
+    border-right: none;
+}
+
+/* SFTP文件管理器 */
+.ssh-sftp-container {
+    display: flex;
+    height: 100%;
+}
+
+.ssh-sftp-pane {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--border-color);
+}
+
+.ssh-sftp-pane:last-child {
+    border-right: none;
+}
+
+.ssh-sftp-header {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    gap: 8px;
+}
+
+.ssh-sftp-path {
+    flex: 1;
+    padding: 6px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    color: var(--text-primary);
+    font-size: 13px;
+}
+
+.ssh-sftp-filelist {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.ssh-sftp-item {
+    display: flex;
+    align-items: center;
+    padding: 6px 16px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.ssh-sftp-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.ssh-sftp-item.selected {
+    background: rgba(98, 114, 164, 0.2);
+}
+
+.ssh-sftp-item-icon {
+    margin-right: 8px;
+    width: 16px;
+    text-align: center;
+}
+
+.ssh-sftp-item-name {
+    flex: 1;
+}
+
+.ssh-sftp-item-size {
+    width: 80px;
+    text-align: right;
+    color: var(--text-muted);
+}
+
+.ssh-sftp-item-date {
+    width: 120px;
+    text-align: right;
+    color: var(--text-muted);
+    margin-left: 16px;
+}
+
+/* 系统监控 */
+.ssh-monitor-container {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    padding: 16px;
+    overflow-y: auto;
+}
+
+.ssh-monitor-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.ssh-monitor-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.ssh-monitor-card-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.ssh-monitor-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--accent-color);
+}
+
+.ssh-monitor-chart {
+    height: 100px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+}
+
+/* 进度条 */
+.ssh-progress {
+    height: 4px;
+    background: var(--bg-primary);
+    border-radius: 2px;
+    overflow: hidden;
+}
+
+.ssh-progress-bar {
+    height: 100%;
+    background: var(--accent-color);
+    transition: width 0.3s;
+}
+
+/* 传输队列 */
+.ssh-transfer-queue {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.ssh-transfer-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+}
+
+.ssh-transfer-icon {
+    margin-right: 8px;
+}
+
+.ssh-transfer-name {
+    flex: 1;
+}
+
+.ssh-transfer-progress {
+    width: 100px;
+    margin: 0 16px;
+}
+
+.ssh-transfer-speed {
+    width: 80px;
+    text-align: right;
+    color: var(--text-muted);
+}
+
+/* 右键菜单 */
+.ssh-context-menu {
+    position: fixed;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 4px 0;
+    min-width: 160px;
+    z-index: 2000;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+.ssh-context-menu-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 16px;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+}
+
+.ssh-context-menu-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.ssh-context-menu-item.danger {
+    color: #ff5555;
+}
+
+.ssh-context-menu-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 4px 0;
+}
+
+/* 空状态 */
+.ssh-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    color: var(--text-muted);
+}
+
+.ssh-empty-icon {
+    font-size: 32px;
+    margin-bottom: 8px;
+}
+
+/* 加载状态 */
+.ssh-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+}
+
+.ssh-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
