@@ -1,12 +1,29 @@
 // src-tauri/src/ssh/session.rs
 
 use crate::ssh::types::*;
-use ssh2::Session;
+use ssh2::{Session, KeyboardInteractivePrompt, Prompt};
 use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tauri::{AppHandle, Emitter};
+
+/// 键盘交互认证提示处理器
+struct PasswordPrompt {
+    password: String,
+}
+
+impl KeyboardInteractivePrompt for PasswordPrompt {
+    fn prompt<'a>(
+        &mut self,
+        _username: &str,
+        _instructions: &str,
+        prompts: &[Prompt<'a>],
+    ) -> Vec<String> {
+        // 对所有提示返回密码
+        prompts.iter().map(|_| self.password.clone()).collect()
+    }
+}
 
 /// SSH连接管理器
 pub struct SshConnectionManager {
@@ -49,11 +66,25 @@ impl SshConnectionManager {
         sess.handshake()
             .map_err(|e| format!("SSH握手失败: {}", e))?;
 
+        // 获取服务器支持的认证方法
+        let auth_methods = sess.auth_methods(&session_config.username)
+            .map_err(|e| format!("获取认证方法失败: {}", e))?;
+
         // 认证
         match &session_config.auth_type {
             AuthType::Password { password } => {
-                sess.userauth_password(&session_config.username, password)
-                    .map_err(|e| format!("密码认证失败: {}", e))?;
+                // 检查是否支持密码认证
+                if auth_methods.contains("password") {
+                    sess.userauth_password(&session_config.username, password)
+                        .map_err(|e| format!("密码认证失败: {}", e))?;
+                } else if auth_methods.contains("keyboard-interactive") {
+                    // 如果不支持密码但支持键盘交互，尝试使用键盘交互
+                    let mut prompter = PasswordPrompt { password: password.clone() };
+                    sess.userauth_keyboard_interactive(&session_config.username, &mut prompter)
+                        .map_err(|e| format!("键盘交互认证失败: {}", e))?;
+                } else {
+                    return Err(format!("服务器不支持密码认证，支持的认证方法: {}", auth_methods));
+                }
             }
             AuthType::PrivateKey { key_path, passphrase } => {
                 let key = std::fs::read(key_path)
