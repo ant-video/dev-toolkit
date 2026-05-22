@@ -14,6 +14,16 @@ class SftpManager {
         this.init();
     }
 
+    // 获取 Tauri invoke 函数（兼容 Tauri 1.x 和 2.x）
+    getTauriInvoke() {
+        if (window.__TAURI__?.core?.invoke) {
+            return window.__TAURI__.core.invoke;  // Tauri 2.x
+        } else if (window.__TAURI__?.invoke) {
+            return window.__TAURI__.invoke;  // Tauri 1.x
+        }
+        return null;
+    }
+
     init() {
         this.render();
         this.bindEvents();
@@ -85,8 +95,11 @@ class SftpManager {
     }
 
     async loadRemoteFiles(path) {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
         try {
-            const files = await window.__TAURI__.invoke('ssh_sftp_list_dir', {
+            const files = await invoke('ssh_sftp_list_dir', {
                 connectionId: this.connectionId,
                 path: path
             });
@@ -130,8 +143,11 @@ class SftpManager {
     }
 
     async openRemoteFile(path) {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
         try {
-            const content = await window.__TAURI__.invoke('ssh_sftp_read_file', {
+            const content = await invoke('ssh_sftp_read_file', {
                 connectionId: this.connectionId,
                 path: path
             });

@@ -14,8 +14,28 @@ class SshTerminal {
         this.init();
     }
 
+    // 获取 Tauri invoke 函数（兼容 Tauri 1.x 和 2.x）
+    getTauriInvoke() {
+        if (window.__TAURI__?.core?.invoke) {
+            return window.__TAURI__.core.invoke;  // Tauri 2.x
+        } else if (window.__TAURI__?.invoke) {
+            return window.__TAURI__.invoke;  // Tauri 1.x
+        }
+        return null;
+    }
+
+    // 获取 Tauri event 模块（兼容 Tauri 1.x 和 2.x）
+    getTauriEvent() {
+        if (window.__TAURI__?.event) {
+            return window.__TAURI__.event;  // Tauri 2.x
+        } else if (window.__TAURI__?.event) {
+            return window.__TAURI__.event;  // Tauri 1.x
+        }
+        return null;
+    }
+
     isTauriReady() {
-        return window.__TAURI__ && window.__TAURI__.invoke;
+        return this.getTauriInvoke() !== null;
     }
 
     async init() {
@@ -78,9 +98,10 @@ class SshTerminal {
     }
 
     bindEvents() {
+        const invoke = this.getTauriInvoke();
         this.term.onData(data => {
-            if (!this.disconnected && this.isTauriReady()) {
-                window.__TAURI__.invoke('ssh_write', {
+            if (!this.disconnected && invoke) {
+                invoke('ssh_write', {
                     connectionId: this.connectionId,
                     data: Array.from(new TextEncoder().encode(data))
                 }).catch(e => {
@@ -121,17 +142,20 @@ class SshTerminal {
     }
 
     async listenOutput() {
-        const unlisten = await window.__TAURI__.event.listen(
+        const event = this.getTauriEvent();
+        if (!event) return;
+
+        const unlisten = await event.listen(
             `ssh-output-${this.connectionId}`,
-            (event) => {
-                if (event.payload && event.payload.length > 0) {
-                    const data = new Uint8Array(event.payload);
+            (evt) => {
+                if (evt.payload && evt.payload.length > 0) {
+                    const data = new Uint8Array(evt.payload);
                     this.term.write(data);
                 }
             }
         );
 
-        const unlistenDisconnect = await window.__TAURI__.event.listen(
+        const unlistenDisconnect = await event.listen(
             `ssh-disconnect-${this.connectionId}`,
             () => {
                 this.handleDisconnect();
@@ -145,8 +169,11 @@ class SshTerminal {
     }
 
     async requestPty() {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
         try {
-            await window.__TAURI__.invoke('ssh_create_pty', {
+            await invoke('ssh_create_pty', {
                 connectionId: this.connectionId,
                 cols: this.term.cols,
                 rows: this.term.rows
@@ -158,8 +185,9 @@ class SshTerminal {
     }
 
     resizePty() {
-        if (!this.disconnected && this.connectionId) {
-            window.__TAURI__.invoke('ssh_resize_pty', {
+        const invoke = this.getTauriInvoke();
+        if (!this.disconnected && this.connectionId && invoke) {
+            invoke('ssh_resize_pty', {
                 connectionId: this.connectionId,
                 cols: this.term.cols,
                 rows: this.term.rows
@@ -208,6 +236,7 @@ class SshTerminal {
     }
 
     async handleContextAction(action) {
+        const invoke = this.getTauriInvoke();
         switch (action) {
             case 'copy':
                 if (this.term.hasSelection()) {
@@ -230,9 +259,11 @@ class SshTerminal {
                 }));
                 break;
             case 'disconnect':
-                await window.__TAURI__.invoke('ssh_disconnect', {
-                    connectionId: this.connectionId
-                });
+                if (invoke) {
+                    await invoke('ssh_disconnect', {
+                        connectionId: this.connectionId
+                    });
+                }
                 break;
         }
     }

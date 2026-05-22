@@ -12,6 +12,16 @@ class SystemMonitor {
         this.init();
     }
 
+    // 获取 Tauri invoke 函数（兼容 Tauri 1.x 和 2.x）
+    getTauriInvoke() {
+        if (window.__TAURI__?.core?.invoke) {
+            return window.__TAURI__.core.invoke;  // Tauri 2.x
+        } else if (window.__TAURI__?.invoke) {
+            return window.__TAURI__.invoke;  // Tauri 1.x
+        }
+        return null;
+    }
+
     async init() {
         this.render();
         await this.refresh();
@@ -78,21 +88,24 @@ class SystemMonitor {
     }
 
     async refresh() {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
         try {
-            const data = await window.__TAURI__.invoke('ssh_monitor_data', {
+            const data = await invoke('ssh_monitor_data', {
                 connectionId: this.connectionId
             });
             this.data = data;
             this.updateDisplay();
 
-            const processes = await window.__TAURI__.invoke('ssh_monitor_processes', {
+            const processes = await invoke('ssh_monitor_processes', {
                 connectionId: this.connectionId
             });
             this.processes = processes;
             this.renderProcesses();
 
             try {
-                const containers = await window.__TAURI__.invoke('ssh_docker_list', {
+                const containers = await invoke('ssh_docker_list', {
                     connectionId: this.connectionId
                 });
                 this.dockerContainers = containers;
@@ -189,11 +202,14 @@ class SystemMonitor {
     filterProcesses(keyword) {}
 
     async killProcess(pid) {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
         const confirmed = await SSHUtils.confirm(`确定终止进程 ${pid} 吗？`);
         if (!confirmed) return;
 
         try {
-            await window.__TAURI__.invoke('ssh_monitor_kill_process', {
+            await invoke('ssh_monitor_kill_process', {
                 connectionId: this.connectionId,
                 pid: pid
             });

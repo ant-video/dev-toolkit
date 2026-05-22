@@ -9,9 +9,29 @@ class SshMain {
         this.init();
     }
 
+    // 获取 Tauri invoke 函数（兼容 Tauri 1.x 和 2.x）
+    getTauriInvoke() {
+        if (window.__TAURI__?.core?.invoke) {
+            return window.__TAURI__.core.invoke;  // Tauri 2.x
+        } else if (window.__TAURI__?.invoke) {
+            return window.__TAURI__.invoke;  // Tauri 1.x
+        }
+        return null;
+    }
+
+    // 获取 Tauri event 模块（兼容 Tauri 1.x 和 2.x）
+    getTauriEvent() {
+        if (window.__TAURI__?.event) {
+            return window.__TAURI__.event;  // Tauri 2.x
+        } else if (window.__TAURI__?.event) {
+            return window.__TAURI__.event;  // Tauri 1.x
+        }
+        return null;
+    }
+
     // 检查 Tauri API 是否可用
     isTauriReady() {
-        return window.__TAURI__ && window.__TAURI__.invoke;
+        return this.getTauriInvoke() !== null;
     }
 
     async init() {

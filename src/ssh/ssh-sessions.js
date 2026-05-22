@@ -13,15 +13,25 @@ class SshSessionManager {
         this.waitForTauriAndInit();
     }
 
+    // 获取 Tauri invoke 函数（兼容 Tauri 1.x 和 2.x）
+    getTauriInvoke() {
+        if (window.__TAURI__?.core?.invoke) {
+            return window.__TAURI__.core.invoke;  // Tauri 2.x
+        } else if (window.__TAURI__?.invoke) {
+            return window.__TAURI__.invoke;  // Tauri 1.x
+        }
+        return null;
+    }
+
     async waitForTauriAndInit() {
         // 等待 Tauri API 准备好
         let attempts = 0;
-        while (!window.__TAURI__ && attempts < 50) {
+        while (!this.getTauriInvoke() && attempts < 50) {
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
         }
 
-        if (!window.__TAURI__) {
+        if (!this.getTauriInvoke()) {
             console.warn('Tauri API 未就绪，SSH 会话管理器将在页面切换时初始化');
             return;
         }
@@ -38,12 +48,13 @@ class SshSessionManager {
     }
 
     async loadSessions() {
-        if (!window.__TAURI__) {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) {
             console.warn('Tauri API 不可用');
             return;
         }
         try {
-            const result = await window.__TAURI__.invoke('ssh_list_sessions');
+            const result = await invoke('ssh_list_sessions');
             this.sessions = result || [];
             this.updateGroups();
         } catch (e) {
