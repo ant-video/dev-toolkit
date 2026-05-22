@@ -10,6 +10,7 @@
     <link rel="stylesheet" href="codemirror/foldgutter.min.css">
     <link rel="stylesheet" href="codemirror/dialog.min.css">
     <link rel="stylesheet" href="codemirror/show-hint.min.css">
+    <link rel="stylesheet" href="xterm/xterm.min.css">
 </head>
 <body>
     <div class="app" id="app">
@@ -83,6 +84,10 @@
                 <div class="nav-group">
                     <div class="nav-group-title">🗄️ 数据库</div>
                     <a class="nav-item" data-page="database">数据库客户端</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">🔌 SSH</div>
+                    <a class="nav-item" data-page="ssh">SSH 连接</a>
                 </div>
                 <div class="nav-group">
                     <div class="nav-group-title">🧹 文本处理</div>
@@ -1433,6 +1438,112 @@
                 </div>
             </section>
 
+            <!-- SSH 连接工具 -->
+            <section id="page-ssh" class="page">
+                <div class="ssh-container">
+                    <!-- 左侧边栏 -->
+                    <aside class="ssh-sidebar">
+                        <div class="ssh-sidebar-header">
+                            <h3>会话管理</h3>
+                        </div>
+                        <div class="ssh-search">
+                            <input type="text" id="ssh-search-input" placeholder="搜索会话...">
+                        </div>
+                        <div class="ssh-session-tree" id="ssh-session-tree">
+                        </div>
+                        <div class="ssh-sidebar-actions">
+                            <button class="ssh-btn ssh-btn-primary" id="ssh-quick-connect">
+                                <span class="icon">+</span> 快速连接
+                            </button>
+                        </div>
+                    </aside>
+
+                    <!-- 右侧工作区 -->
+                    <div class="ssh-workspace">
+                        <div class="ssh-tabs" id="ssh-tabs">
+                        </div>
+                        <div class="ssh-content" id="ssh-content">
+                            <div class="ssh-welcome">
+                                <div class="ssh-welcome-icon">🔌</div>
+                                <h2>SSH 连接工具</h2>
+                                <p>选择左侧会话连接，或点击"快速连接"创建新连接</p>
+                                <div class="ssh-features">
+                                    <div class="ssh-feature">
+                                        <span class="icon">💻</span>
+                                        <span>SSH终端</span>
+                                    </div>
+                                    <div class="ssh-feature">
+                                        <span class="icon">📁</span>
+                                        <span>SFTP文件管理</span>
+                                    </div>
+                                    <div class="ssh-feature">
+                                        <span class="icon">📊</span>
+                                        <span>系统监控</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 快速连接对话框 -->
+                <div class="ssh-modal" id="ssh-connect-modal" style="display: none;">
+                    <div class="ssh-modal-overlay"></div>
+                    <div class="ssh-modal-content">
+                        <div class="ssh-modal-header">
+                            <h3>快速连接</h3>
+                            <button class="ssh-modal-close">&times;</button>
+                        </div>
+                        <div class="ssh-modal-body">
+                            <form id="ssh-connect-form">
+                                <div class="ssh-form-group">
+                                    <label>会话名称</label>
+                                    <input type="text" name="name" placeholder="可选，用于保存会话">
+                                </div>
+                                <div class="ssh-form-row">
+                                    <div class="ssh-form-group ssh-form-flex-3">
+                                        <label>主机地址 *</label>
+                                        <input type="text" name="host" required placeholder="192.168.1.1">
+                                    </div>
+                                    <div class="ssh-form-group ssh-form-flex-1">
+                                        <label>端口</label>
+                                        <input type="number" name="port" value="22">
+                                    </div>
+                                </div>
+                                <div class="ssh-form-group">
+                                    <label>用户名 *</label>
+                                    <input type="text" name="username" required placeholder="root">
+                                </div>
+                                <div class="ssh-form-group">
+                                    <label>认证方式</label>
+                                    <select name="auth_type">
+                                        <option value="password">密码</option>
+                                        <option value="private_key">密钥</option>
+                                    </select>
+                                </div>
+                                <div class="ssh-form-group" id="ssh-password-group">
+                                    <label>密码 *</label>
+                                    <input type="password" name="password" placeholder="输入密码">
+                                </div>
+                                <div class="ssh-form-group" id="ssh-key-group" style="display: none;">
+                                    <label>密钥路径</label>
+                                    <input type="text" name="key_path" placeholder="/path/to/id_rsa">
+                                </div>
+                                <div class="ssh-form-group">
+                                    <label>分组</label>
+                                    <input type="text" name="group" value="默认" placeholder="分组名称">
+                                </div>
+                            </form>
+                        </div>
+                        <div class="ssh-modal-footer">
+                            <button type="button" class="ssh-btn ssh-btn-secondary" id="ssh-cancel-connect">取消</button>
+                            <button type="button" class="ssh-btn ssh-btn-primary" id="ssh-save-and-connect">保存并连接</button>
+                            <button type="button" class="ssh-btn ssh-btn-primary" id="ssh-connect-only">连接</button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- 数据编辑器弹窗 -->
             <div class="modal" id="db-data-editor-modal">
                 <div class="modal-content db-editor-modal">
@@ -1821,5 +1932,15 @@
     <script src="codemirror/dialog.min.js"></script>
     <script src="codemirror/match-highlighter.min.js"></script>
     <script src="app.js"></script>
+    <script src="xterm/xterm.min.js"></script>
+    <script src="xterm/xterm-addon-fit.min.js"></script>
+    <script src="xterm/xterm-addon-search.min.js"></script>
+    <script src="xterm/xterm-addon-web-links.min.js"></script>
+    <script src="ssh/ssh-utils.js"></script>
+    <script src="ssh/ssh-sessions.js"></script>
+    <script src="ssh/ssh-terminal.js"></script>
+    <script src="ssh/ssh-sftp.js"></script>
+    <script src="ssh/ssh-monitor.js"></script>
+    <script src="ssh/ssh-main.js"></script>
 </body>
 </html>
