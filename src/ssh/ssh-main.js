@@ -155,6 +155,7 @@ class SshMain {
         const formData = new FormData(form);
         const editSessionId = form.dataset.editSessionId;
 
+        const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
         const session = {
             id: editSessionId || '',
             name: formData.get('name') || formData.get('host'),
@@ -165,6 +166,9 @@ class SshMain {
             auth_type: formData.get('auth_type') === 'password'
                 ? { type: 'password', password: formData.get('password') }
                 : { type: 'private_key', key_path: formData.get('key_path'), passphrase: null },
+            description: null,
+            tags: [],
+            proxy: null,
             terminal: {
                 shell: '/bin/bash',
                 cols: 120,
@@ -173,7 +177,9 @@ class SshMain {
                 font_family: 'Monaco, Menlo, "Courier New", monospace',
                 theme: 'dracula',
                 encoding: 'utf-8'
-            }
+            },
+            created_at: now,
+            updated_at: now
         };
 
         if (!session.host || !session.username) {

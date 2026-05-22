@@ -3062,11 +3062,17 @@ pub fn ssh_export_sessions(ids: Vec<String>) -> Result<String, String> {
 
 // ==================== SSH 连接管理 ====================
 
+/// SSH测试命令
+#[tauri::command]
+pub fn ssh_test() -> Result<String, String> {
+    Ok("SSH命令测试成功".to_string())
+}
+
 /// SSH连接
 #[tauri::command]
 pub async fn ssh_connect(
     app: tauri::AppHandle,
-    session_id: String,
+    _session_id: String,
     session: SshSession,
 ) -> Result<String, String> {
     crate::ssh::session::SSH_MANAGER

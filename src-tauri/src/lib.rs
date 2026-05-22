@@ -162,6 +162,7 @@ pub fn run() {
             commands::ssh_import_sessions,
             commands::ssh_export_sessions,
             // SSH连接管理
+            commands::ssh_test,
             commands::ssh_connect,
             commands::ssh_disconnect,
             commands::ssh_create_pty,
