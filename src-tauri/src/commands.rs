@@ -2999,3 +2999,63 @@ pub async fn open_translate_webview(
 
     Ok(())
 }
+
+// ==================== SSH会话管理 ====================
+
+use crate::ssh::SshSession;
+
+#[tauri::command]
+pub fn ssh_list_sessions() -> Result<Vec<SshSession>, String> {
+    crate::ssh::load_sessions()
+}
+
+#[tauri::command]
+pub fn ssh_save_session(session: SshSession) -> Result<SshSession, String> {
+    if session.id.is_empty() {
+        crate::ssh::add_session(session)
+    } else {
+        crate::ssh::update_session(&session)?;
+        Ok(session)
+    }
+}
+
+#[tauri::command]
+pub fn ssh_delete_session(id: String) -> Result<(), String> {
+    crate::ssh::delete_session(&id)
+}
+
+#[tauri::command]
+pub fn ssh_get_groups() -> Result<Vec<String>, String> {
+    crate::ssh::get_groups()
+}
+
+#[tauri::command]
+pub fn ssh_import_sessions(json: String) -> Result<Vec<SshSession>, String> {
+    let sessions: Vec<SshSession> = serde_json::from_str(&json)
+        .map_err(|e| format!("解析导入数据失败: {}", e))?;
+
+    let mut existing = crate::ssh::load_sessions()?;
+    for mut session in sessions {
+        // 重新生成ID避免冲突
+        session.id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        session.created_at = now.clone();
+        session.updated_at = now;
+        existing.push(session);
+    }
+
+    crate::ssh::save_sessions(&existing)?;
+    Ok(existing)
+}
+
+#[tauri::command]
+pub fn ssh_export_sessions(ids: Vec<String>) -> Result<String, String> {
+    let sessions = crate::ssh::load_sessions()?;
+    let filtered: Vec<SshSession> = sessions
+        .into_iter()
+        .filter(|s| ids.is_empty() || ids.contains(&s.id))
+        .collect();
+
+    serde_json::to_string_pretty(&filtered)
+        .map_err(|e| format!("导出失败: {}", e))
+}

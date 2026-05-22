@@ -1,5 +1,6 @@
 mod commands;
 mod database;
+mod ssh;
 
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
@@ -153,6 +154,13 @@ pub fn run() {
             database::commands::db_open_sql_file,
             database::commands::db_open_csv_file,
             database::commands::db_save_file,
+            // SSH会话管理
+            commands::ssh_list_sessions,
+            commands::ssh_save_session,
+            commands::ssh_delete_session,
+            commands::ssh_get_groups,
+            commands::ssh_import_sessions,
+            commands::ssh_export_sessions,
         ])
         .setup(move |app| {
             let gs = app.global_shortcut();
