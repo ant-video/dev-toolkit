@@ -179,6 +179,9 @@ impl SshConnectionManager {
         // 执行操作
         let result = f(&sftp);
 
+        // 释放 SFTP 资源
+        drop(sftp);
+
         // 恢复非阻塞模式
         conn.session.set_blocking(false);
 
