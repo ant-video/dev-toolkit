@@ -3,7 +3,7 @@
 use crate::ssh::types::*;
 use ssh2::{Session, KeyboardInteractivePrompt, Prompt, Channel};
 use std::collections::HashMap;
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use tauri::{AppHandle, Emitter};
@@ -86,8 +86,10 @@ impl SshConnectionManager {
 
         // 建立TCP连接（带超时）
         let addr = format!("{}:{}", session_config.host, session_config.port);
-        let socket_addr: std::net::SocketAddr = addr.parse()
-            .map_err(|e| format!("地址格式错误 {}: {}", addr, e))?;
+        let socket_addr = addr.to_socket_addrs()
+            .map_err(|e| format!("地址解析失败 {}: {}", addr, e))?
+            .next()
+            .ok_or_else(|| format!("无法解析地址: {}", addr))?;
         let tcp = TcpStream::connect_timeout(
             &socket_addr,
             Duration::from_secs(10),  // 10秒连接超时
@@ -157,6 +159,10 @@ impl SshConnectionManager {
 
         {
             let mut connections = self.connections.write().await;
+            // 再次检查，防止并发请求在读锁释放和写锁获取之间绕过限制
+            if connections.len() >= MAX_CONNECTIONS {
+                return Err(format!("已达到最大连接数限制 ({})", MAX_CONNECTIONS));
+            }
             connections.insert(connection_id.clone(), conn);
         }
 
