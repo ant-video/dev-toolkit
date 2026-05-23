@@ -163,6 +163,13 @@ impl SshConnectionManager {
 
     /// 断开连接
     pub async fn disconnect(&self, connection_id: &str) -> Result<(), String> {
+        // 清理 PTY 会话，防止内存泄漏
+        {
+            let mut sessions = PTY_SESSIONS.write().await;
+            sessions.remove(connection_id);
+        }
+
+        // 断开 SSH 连接
         let mut connections = self.connections.write().await;
         connections.remove(connection_id);
         Ok(())
