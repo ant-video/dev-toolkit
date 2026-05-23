@@ -12,6 +12,7 @@ class SftpManager {
         this.selectedRemote = null;
 
         this.init();
+        window.sftpManager = this;
     }
 
     // 获取 Tauri invoke 函数（兼容 Tauri 1.x 和 2.x）
@@ -24,9 +25,28 @@ class SftpManager {
         return null;
     }
 
-    init() {
+    async init() {
         this.render();
         this.bindEvents();
+        // 初始化本地目录为主目录
+        const invoke = this.getTauriInvoke();
+        if (invoke) {
+            try {
+                const home = await invoke('ssh_local_home_dir');
+                this.localPath = home;
+            } catch (e) {
+                // 使用根目录
+                try {
+                    const roots = await invoke('ssh_local_root_dirs');
+                    if (roots && roots.length > 0) {
+                        this.localPath = roots[0].path;
+                    }
+                } catch (e2) {
+                    console.error('获取根目录失败:', e2);
+                }
+            }
+            this.loadLocalFiles();
+        }
         this.loadRemoteFiles('/');
     }
 
@@ -86,12 +106,91 @@ class SftpManager {
             });
             remoteList.addEventListener('drop', (e) => {
                 e.preventDefault();
+                // 内部拖拽（从本地面板拖入）
+                const localPath = e.dataTransfer.getData('local-path');
+                if (localPath) {
+                    const fileName = localPath.split(/[/\\]/).pop();
+                    this.uploadFile(localPath, this.remotePath + '/' + fileName);
+                    return;
+                }
+                // 浏览器文件拖入
                 const files = e.dataTransfer.files;
                 for (const file of files) {
                     this.uploadFile(file.path, this.remotePath + '/' + file.name);
                 }
             });
         }
+
+        // 本地文件拖拽上传
+        const localList = document.getElementById('sftp-local-list');
+        if (localList) {
+            localList.querySelectorAll('.ssh-sftp-item').forEach(item => {
+                item.addEventListener('dragstart', (e) => {
+                    e.dataTransfer.setData('text/plain', item.dataset.path);
+                });
+            });
+        }
+    }
+
+    async loadLocalFiles() {
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
+        try {
+            const files = await invoke('ssh_local_list_dir', { path: this.localPath });
+            this.localFiles = files;
+            const pathInput = document.getElementById('sftp-local-path');
+            if (pathInput) pathInput.value = this.localPath;
+            this.renderLocalFiles();
+        } catch (e) {
+            SSHUtils.showToast('加载本地目录失败: ' + e, 'error');
+        }
+    }
+
+    renderLocalFiles() {
+        const list = document.getElementById('sftp-local-list');
+        if (!list) return;
+
+        list.innerHTML = this.localFiles.map(file => `
+            <div class="ssh-sftp-item ${this.selectedLocal === file.path ? 'selected' : ''}"
+                 data-path="${file.path}" data-is-dir="${file.is_dir}" draggable="true">
+                <span class="ssh-sftp-item-icon">${SSHUtils.getFileIcon(file.name, file.is_dir)}</span>
+                <span class="ssh-sftp-item-name">${file.name}</span>
+                <span class="ssh-sftp-item-size">${file.is_dir ? '' : SSHUtils.formatSize(file.size)}</span>
+                <span class="ssh-sftp-item-date">${file.modified}</span>
+                ${!file.is_dir ? `<button class="ssh-sftp-action-btn" data-action="upload" data-path="${file.path}" title="上传">⬆️</button>` : ''}
+            </div>
+        `).join('');
+
+        list.querySelectorAll('.ssh-sftp-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                if (e.target.classList.contains('ssh-sftp-action-btn')) return;
+                this.selectedLocal = item.dataset.path;
+                this.renderLocalFiles();
+            });
+            item.addEventListener('dblclick', () => {
+                if (item.dataset.isDir === 'true') {
+                    this.localPath = item.dataset.path;
+                    this.loadLocalFiles();
+                }
+            });
+            // 拖拽到远程
+            item.addEventListener('dragstart', (e) => {
+                e.dataTransfer.setData('local-path', item.dataset.path);
+                e.dataTransfer.setData('is-dir', item.dataset.isDir);
+            });
+        });
+
+        // 上传按钮
+        list.querySelectorAll('.ssh-sftp-action-btn[data-action="upload"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const localPath = btn.dataset.path;
+                const fileName = localPath.split(/[/\\]/).pop();
+                const remotePath = this.remotePath + '/' + fileName;
+                this.uploadFile(localPath, remotePath);
+            });
+        });
     }
 
     async loadRemoteFiles(path) {
@@ -124,11 +223,13 @@ class SftpManager {
                 <span class="ssh-sftp-item-name">${file.name}</span>
                 <span class="ssh-sftp-item-size">${file.is_dir ? '' : SSHUtils.formatSize(file.size)}</span>
                 <span class="ssh-sftp-item-date">${file.modified}</span>
+                ${!file.is_dir ? `<button class="ssh-sftp-action-btn" data-action="download" data-path="${file.path}" title="下载">⬇️</button>` : ''}
             </div>
         `).join('');
 
         list.querySelectorAll('.ssh-sftp-item').forEach(item => {
-            item.addEventListener('click', () => {
+            item.addEventListener('click', (e) => {
+                if (e.target.classList.contains('ssh-sftp-action-btn')) return;
                 this.selectedRemote = item.dataset.path;
                 this.renderRemoteFiles();
             });
@@ -140,6 +241,18 @@ class SftpManager {
                 }
             });
         });
+
+        // 下载按钮
+        list.querySelectorAll('.ssh-sftp-action-btn[data-action="download"]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const remotePath = btn.dataset.path;
+                const fileName = remotePath.split('/').pop();
+                const localPath = this.localPath + '/' + fileName;
+                this.downloadFile(remotePath, localPath);
+            });
+        });
+
     }
 
     async openRemoteFile(path) {
@@ -161,11 +274,90 @@ class SftpManager {
     }
 
     async uploadFile(localPath, remotePath) {
-        SSHUtils.showToast('上传功能开发中...', 'info');
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
+        // 显示进度
+        this.showTransferProgress('upload', localPath, remotePath);
+
+        try {
+            await invoke('ssh_sftp_upload', {
+                connectionId: this.connectionId,
+                localPath: localPath,
+                remotePath: remotePath
+            });
+            SSHUtils.showToast('上传完成: ' + remotePath, 'success');
+            // 刷新远程目录
+            this.loadRemoteFiles(this.remotePath);
+        } catch (e) {
+            SSHUtils.showToast('上传失败: ' + e, 'error');
+        }
     }
 
     async downloadFile(remotePath, localPath) {
-        SSHUtils.showToast('下载功能开发中...', 'info');
+        const invoke = this.getTauriInvoke();
+        if (!invoke) return;
+
+        // 显示进度
+        this.showTransferProgress('download', remotePath, localPath);
+
+        try {
+            await invoke('ssh_sftp_download', {
+                connectionId: this.connectionId,
+                remotePath: remotePath,
+                localPath: localPath
+            });
+            SSHUtils.showToast('下载完成: ' + localPath, 'success');
+            // 刷新本地目录
+            this.loadLocalFiles();
+        } catch (e) {
+            SSHUtils.showToast('下载失败: ' + e, 'error');
+        }
+    }
+
+    showTransferProgress(type, source, dest) {
+        const queue = document.getElementById('transfer-queue');
+        if (!queue) return;
+
+        const id = 'transfer-' + Date.now();
+        const html = `
+            <div class="ssh-transfer-item" id="${id}">
+                <div class="ssh-transfer-info">
+                    <span>${type === 'upload' ? '⬆️' : '⬇️'} ${source.split('/').pop()}</span>
+                    <span class="ssh-transfer-percent">0%</span>
+                </div>
+                <div class="ssh-transfer-bar">
+                    <div class="ssh-transfer-progress" style="width: 0%"></div>
+                </div>
+            </div>
+        `;
+        queue.insertAdjacentHTML('beforeend', html);
+
+        // 监听进度事件
+        const event = window.__TAURI__?.event;
+        if (event) {
+            const unlisten = event.listen(`sftp-transfer-progress-${this.connectionId}`, (evt) => {
+                const data = evt.payload;
+                if (data.local_path === source || data.remote_path === source) {
+                    const item = document.getElementById(id);
+                    if (item) {
+                        item.querySelector('.ssh-transfer-percent').textContent = data.percent + '%';
+                        item.querySelector('.ssh-transfer-progress').style.width = data.percent + '%';
+                    }
+                }
+            });
+
+            event.listen(`sftp-transfer-complete-${this.connectionId}`, (evt) => {
+                const data = evt.payload;
+                if (data.local_path === source || data.remote_path === source) {
+                    setTimeout(() => {
+                        const item = document.getElementById(id);
+                        if (item) item.remove();
+                    }, 1000);
+                    unlisten.then(fn => fn());
+                }
+            });
+        }
     }
 
     goRemoteParent() {
@@ -179,9 +371,32 @@ class SftpManager {
         this.loadRemoteFiles(this.remotePath);
     }
 
-    goLocalParent() {}
-    refreshLocal() {}
-    loadLocalFiles() {}
+    goLocalParent() {
+        // 计算父目录
+        const path = this.localPath.replace(/\\/g, '/');
+        const parts = path.split('/').filter(p => p);
+        parts.pop();
+        let parent;
+        if (parts.length === 0) {
+            // Windows 根目录处理
+            if (this.localPath.match(/^[A-Za-z]:\\/)) {
+                parent = this.localPath.substring(0, 3);
+            } else {
+                parent = '/';
+            }
+        } else {
+            parent = parts.join('/');
+            if (!parent.match(/^[A-Za-z]:/)) {
+                parent = '/' + parent;
+            }
+        }
+        this.localPath = parent;
+        this.loadLocalFiles();
+    }
+
+    refreshLocal() {
+        this.loadLocalFiles();
+    }
 }
 
 window.SftpManager = SftpManager;
