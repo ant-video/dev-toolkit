@@ -14,6 +14,7 @@ use std::time::Duration;
 pub enum PtyRequest {
     Write { data: Vec<u8> },
     Resize { cols: u16, rows: u16 },
+    SetSftpActive(bool),
 }
 
 /// PTY会话信息 - 包含操作通道
@@ -204,6 +205,17 @@ impl SshConnectionManager {
     where
         F: FnOnce(&ssh2::Sftp) -> Result<T, String>,
     {
+        // 通知 PTY 循环暂停读取，避免阻塞模式冲突
+        {
+            let sessions = PTY_SESSIONS.read().await;
+            if let Some(pty) = sessions.get(connection_id) {
+                let _ = pty.request_tx.send(PtyRequest::SetSftpActive(true));
+            }
+        }
+
+        // 等待 PTY 循环处理消息
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
         let mut connections = self.connections.write().await;
         let conn = connections.get_mut(connection_id).ok_or("连接不存在")?;
 
@@ -219,6 +231,14 @@ impl SshConnectionManager {
 
         // 恢复非阻塞模式
         conn.session.set_blocking(false);
+
+        // 通知 PTY 循环恢复读取
+        {
+            let sessions = PTY_SESSIONS.read().await;
+            if let Some(pty) = sessions.get(connection_id) {
+                let _ = pty.request_tx.send(PtyRequest::SetSftpActive(false));
+            }
+        }
 
         result
     }
@@ -304,49 +324,66 @@ pub fn spawn_pty_loop(
     std::thread::spawn(move || {
         eprintln!("[PTY] Read/write thread started for {}", connection_id);
         let mut buf = [0u8; 8192];
+        let mut sftp_active = false;
 
         loop {
-            // 尝试读取数据 (非阻塞)
-            let mut read_something = false;
-            loop {
-                match channel.read(&mut buf) {
-                    Ok(0) => {
-                        // EOF
-                        eprintln!("[PTY] EOF received for {}", connection_id);
-                        let _ = app.emit(&format!("ssh-disconnect-{}", connection_id), &());
-                        return;
-                    }
-                    Ok(n) => {
-                        read_something = true;
-                        let data: Vec<u8> = buf[..n].to_vec();
-                        eprintln!("[PTY] Read {} bytes from server", n);
-                        let _ = app.emit(&format!("ssh-output-{}", connection_id), &data);
-                    }
-                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                        // 无数据可读，退出读取循环
-                        break;
-                    }
-                    Err(e) => {
-                        eprintln!("[PTY] Read error: {}", e);
-                        let _ = app.emit(&format!("ssh-disconnect-{}", connection_id), &());
-                        return;
-                    }
-                }
-            }
-
-            // 处理待处理的请求
+            // 先处理请求（优先处理 SFTP 状态变更）
             while let Ok(req) = request_rx.try_recv() {
                 match req {
                     PtyRequest::Write { data } => {
                         eprintln!("[PTY] Writing {} bytes to server", data.len());
-                        if let Err(e) = channel.write_all(&data) {
-                            eprintln!("[PTY] Write error: {}", e);
+                        // 非阻塞模式下 write_all 会因 WouldBlock 失败，需要手动重试
+                        let mut offset = 0;
+                        while offset < data.len() {
+                            match channel.write(&data[offset..]) {
+                                Ok(n) => offset += n,
+                                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                    std::thread::sleep(std::time::Duration::from_millis(1));
+                                }
+                                Err(e) => {
+                                    eprintln!("[PTY] Write error: {}", e);
+                                    break;
+                                }
+                            }
                         }
                     }
                     PtyRequest::Resize { cols, rows } => {
                         eprintln!("[PTY] Resizing to {}x{}", cols, rows);
                         if let Err(e) = channel.request_pty_size(cols as u32, rows as u32, Some(0), Some(0)) {
                             eprintln!("[PTY] Resize error: {}", e);
+                        }
+                    }
+                    PtyRequest::SetSftpActive(active) => {
+                        sftp_active = active;
+                        eprintln!("[PTY] SFTP active: {}", active);
+                    }
+                }
+            }
+
+            // SFTP 活跃时跳过读取，避免与 SFTP 的阻塞模式冲突
+            let mut read_something = false;
+            if !sftp_active {
+                loop {
+                    match channel.read(&mut buf) {
+                        Ok(0) => {
+                            // EOF
+                            eprintln!("[PTY] EOF received for {}", connection_id);
+                            let _ = app.emit(&format!("ssh-disconnect-{}", connection_id), &());
+                            return;
+                        }
+                        Ok(n) => {
+                            read_something = true;
+                            let data: Vec<u8> = buf[..n].to_vec();
+                            let _ = app.emit(&format!("ssh-output-{}", connection_id), &data);
+                        }
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            // 无数据可读，退出读取循环
+                            break;
+                        }
+                        Err(e) => {
+                            eprintln!("[PTY] Read error: {}", e);
+                            let _ = app.emit(&format!("ssh-disconnect-{}", connection_id), &());
+                            return;
                         }
                     }
                 }
