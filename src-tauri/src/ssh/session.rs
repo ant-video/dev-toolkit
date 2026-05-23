@@ -8,6 +8,7 @@ use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc};
 use tauri::{AppHandle, Emitter};
 use std::io::{Read, Write};
+use std::time::Duration;
 
 /// PTY操作请求
 pub enum PtyRequest {
@@ -72,10 +73,20 @@ impl SshConnectionManager {
             error: None,
         });
 
-        // 建立TCP连接
+        // 建立TCP连接（带超时）
         let addr = format!("{}:{}", session_config.host, session_config.port);
-        let tcp = TcpStream::connect(&addr)
-            .map_err(|e| format!("连接失败 {}: {}", addr, e))?;
+        let socket_addr: std::net::SocketAddr = addr.parse()
+            .map_err(|e| format!("地址格式错误 {}: {}", addr, e))?;
+        let tcp = TcpStream::connect_timeout(
+            &socket_addr,
+            Duration::from_secs(10),  // 10秒连接超时
+        ).map_err(|e| format!("连接失败 {}: {}", addr, e))?;
+
+        // 设置读写超时
+        tcp.set_read_timeout(Some(Duration::from_secs(30)))
+            .map_err(|e| format!("设置读超时失败: {}", e))?;
+        tcp.set_write_timeout(Some(Duration::from_secs(30)))
+            .map_err(|e| format!("设置写超时失败: {}", e))?;
 
         // 创建SSH会话
         let mut sess = Session::new()
