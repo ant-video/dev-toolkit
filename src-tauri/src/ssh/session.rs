@@ -44,6 +44,9 @@ impl KeyboardInteractivePrompt for PasswordPrompt {
     }
 }
 
+/// 最大并发连接数
+const MAX_CONNECTIONS: usize = 10;
+
 /// SSH连接管理器
 pub struct SshConnectionManager {
     connections: Arc<RwLock<HashMap<String, ActiveConnection>>>,
@@ -62,6 +65,14 @@ impl SshConnectionManager {
         session_config: &SshSession,
         app: AppHandle,
     ) -> Result<String, String> {
+        // 检查连接数限制
+        {
+            let connections = self.connections.read().await;
+            if connections.len() >= MAX_CONNECTIONS {
+                return Err(format!("已达到最大连接数限制 ({})", MAX_CONNECTIONS));
+            }
+        }
+
         let connection_id = uuid::Uuid::new_v4().to_string();
 
         // 发送连接中状态
