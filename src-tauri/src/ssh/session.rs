@@ -1,12 +1,30 @@
 // src-tauri/src/ssh/session.rs
 
 use crate::ssh::types::*;
-use ssh2::{Session, KeyboardInteractivePrompt, Prompt};
+use ssh2::{Session, KeyboardInteractivePrompt, Prompt, Channel};
 use std::collections::HashMap;
 use std::net::TcpStream;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc};
 use tauri::{AppHandle, Emitter};
+use std::io::{Read, Write};
+
+/// PTY操作请求
+pub enum PtyRequest {
+    Write { data: Vec<u8> },
+    Resize { cols: u16, rows: u16 },
+}
+
+/// PTY会话信息 - 包含操作通道
+pub struct PtySession {
+    pub request_tx: mpsc::UnboundedSender<PtyRequest>,
+}
+
+/// 全局PTY会话管理器 - 使用消息传递避免锁竞争
+lazy_static::lazy_static! {
+    pub static ref PTY_SESSIONS: Arc<RwLock<HashMap<String, PtySession>>> =
+        Arc::new(RwLock::new(HashMap::new()));
+}
 
 /// 键盘交互认证提示处理器
 struct PasswordPrompt {
@@ -144,6 +162,49 @@ impl SshConnectionManager {
         let connections = self.connections.read().await;
         connections.get(connection_id).cloned()
     }
+
+    /// 创建SFTP（自动处理阻塞模式切换）
+    /// 保持写锁直到操作完成
+    pub async fn with_sftp<F, T>(&self, connection_id: &str, f: F) -> Result<T, String>
+    where
+        F: FnOnce(&ssh2::Sftp) -> Result<T, String>,
+    {
+        let mut connections = self.connections.write().await;
+        let conn = connections.get_mut(connection_id).ok_or("连接不存在")?;
+
+        // 切换到阻塞模式
+        conn.session.set_blocking(true);
+        let sftp = conn.session.sftp().map_err(|e| format!("创建SFTP失败: {}", e))?;
+
+        // 执行操作
+        let result = f(&sftp);
+
+        // 恢复非阻塞模式
+        conn.session.set_blocking(false);
+
+        result
+    }
+
+    /// 执行SFTP文件传输（上传/下载），保持阻塞模式直到完成
+    pub async fn with_sftp_transfer<F, T>(&self, connection_id: &str, f: F) -> Result<T, String>
+    where
+        F: FnOnce(&ssh2::Sftp) -> Result<T, String>,
+    {
+        // 与 with_sftp 相同，但明确表示这是用于传输操作
+        self.with_sftp(connection_id, f).await
+    }
+
+    /// 创建PTY终端（需要可变访问session来设置非阻塞模式）
+    pub async fn create_pty_for_connection(
+        &self,
+        connection_id: &str,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Channel, String> {
+        let mut connections = self.connections.write().await;
+        let conn = connections.get_mut(connection_id).ok_or("连接不存在")?;
+        conn.create_pty(cols, rows)
+    }
 }
 
 /// 活动连接
@@ -156,7 +217,10 @@ pub struct ActiveConnection {
 
 impl ActiveConnection {
     /// 创建PTY终端通道
-    pub fn create_pty(&self, cols: u16, rows: u16) -> Result<ssh2::Channel, String> {
+    pub fn create_pty(&mut self, cols: u16, rows: u16) -> Result<ssh2::Channel, String> {
+        // 确保session为阻塞模式，以便完成通道创建和设置
+        self.session.set_blocking(true);
+
         let mut channel = self.session
             .channel_session()
             .map_err(|e| format!("创建通道失败: {}", e))?;
@@ -171,13 +235,93 @@ impl ActiveConnection {
         // 启动shell
         channel.shell().map_err(|e| format!("启动shell失败: {}", e))?;
 
+        // 设置session为非阻塞模式，后续读写操作将非阻塞
+        self.session.set_blocking(false);
+
         Ok(channel)
     }
 
     /// 创建SFTP会话
-    pub fn create_sftp(&self) -> Result<ssh2::Sftp, String> {
+    pub fn create_sftp(&mut self) -> Result<ssh2::Sftp, String> {
+        // SFTP需要阻塞模式
+        self.session.set_blocking(true);
         self.session.sftp().map_err(|e| format!("创建SFTP失败: {}", e))
     }
+
+    /// 恢复非阻塞模式（PTY使用）
+    pub fn restore_nonblocking(&mut self) {
+        self.session.set_blocking(false);
+    }
+}
+
+/// 启动PTY读写循环
+/// 返回请求通道，读取循环在独立线程中运行
+pub fn spawn_pty_loop(
+    mut channel: Channel,
+    connection_id: String,
+    app: AppHandle,
+) -> mpsc::UnboundedSender<PtyRequest> {
+    let (request_tx, mut request_rx) = mpsc::unbounded_channel::<PtyRequest>();
+
+    std::thread::spawn(move || {
+        eprintln!("[PTY] Read/write thread started for {}", connection_id);
+        let mut buf = [0u8; 8192];
+
+        loop {
+            // 尝试读取数据 (非阻塞)
+            let mut read_something = false;
+            loop {
+                match channel.read(&mut buf) {
+                    Ok(0) => {
+                        // EOF
+                        eprintln!("[PTY] EOF received for {}", connection_id);
+                        let _ = app.emit(&format!("ssh-disconnect-{}", connection_id), &());
+                        return;
+                    }
+                    Ok(n) => {
+                        read_something = true;
+                        let data: Vec<u8> = buf[..n].to_vec();
+                        eprintln!("[PTY] Read {} bytes from server", n);
+                        let _ = app.emit(&format!("ssh-output-{}", connection_id), &data);
+                    }
+                    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        // 无数据可读，退出读取循环
+                        break;
+                    }
+                    Err(e) => {
+                        eprintln!("[PTY] Read error: {}", e);
+                        let _ = app.emit(&format!("ssh-disconnect-{}", connection_id), &());
+                        return;
+                    }
+                }
+            }
+
+            // 处理待处理的请求
+            while let Ok(req) = request_rx.try_recv() {
+                match req {
+                    PtyRequest::Write { data } => {
+                        eprintln!("[PTY] Writing {} bytes to server", data.len());
+                        if let Err(e) = channel.write_all(&data) {
+                            eprintln!("[PTY] Write error: {}", e);
+                        }
+                    }
+                    PtyRequest::Resize { cols, rows } => {
+                        eprintln!("[PTY] Resizing to {}x{}", cols, rows);
+                        if let Err(e) = channel.request_pty_size(cols as u32, rows as u32, Some(0), Some(0)) {
+                            eprintln!("[PTY] Resize error: {}", e);
+                        }
+                    }
+                }
+            }
+
+            // 如果什么都没发生，短暂休眠
+            if !read_something {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+    });
+
+    request_tx
 }
 
 // 全局连接管理器
