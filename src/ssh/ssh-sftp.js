@@ -194,9 +194,22 @@ class SftpManager {
                 path: path
             });
             this.remoteFiles = files;
-            this.remotePath = path;
+
+            // 解析实际路径（处理 '.' 等相对路径）
+            if ((path === '.' || path === '..') && files.length > 0) {
+                const firstPath = files[0].path;
+                const lastSlash = firstPath.lastIndexOf('/');
+                if (lastSlash > 0) {
+                    this.remotePath = firstPath.substring(0, lastSlash);
+                } else {
+                    this.remotePath = path;
+                }
+            } else {
+                this.remotePath = path;
+            }
+
             const pathInput = document.getElementById('sftp-remote-path');
-            if (pathInput) pathInput.value = path;
+            if (pathInput) pathInput.value = this.remotePath;
             this.renderRemoteFiles();
         } catch (e) {
             SSHUtils.showToast('加载远程目录失败: ' + e, 'error');
