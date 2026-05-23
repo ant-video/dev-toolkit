@@ -5,7 +5,7 @@ class SftpManager {
         this.container = container;
         this.connectionId = connectionId;
         this.localPath = '/';
-        this.remotePath = '/';
+        this.remotePath = '.';
         this.localFiles = [];
         this.remoteFiles = [];
         this.selectedLocal = null;
@@ -47,7 +47,7 @@ class SftpManager {
             }
             this.loadLocalFiles();
         }
-        this.loadRemoteFiles('/');
+        this.loadRemoteFiles('.');
     }
 
     render() {
