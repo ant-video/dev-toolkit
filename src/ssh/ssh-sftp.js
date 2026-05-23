@@ -121,15 +121,6 @@ class SftpManager {
             });
         }
 
-        // 本地文件拖拽上传
-        const localList = document.getElementById('sftp-local-list');
-        if (localList) {
-            localList.querySelectorAll('.ssh-sftp-item').forEach(item => {
-                item.addEventListener('dragstart', (e) => {
-                    e.dataTransfer.setData('text/plain', item.dataset.path);
-                });
-            });
-        }
     }
 
     async loadLocalFiles() {

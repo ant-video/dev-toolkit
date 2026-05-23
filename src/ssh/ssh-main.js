@@ -22,9 +22,7 @@ class SshMain {
     // 获取 Tauri event 模块（兼容 Tauri 1.x 和 2.x）
     getTauriEvent() {
         if (window.__TAURI__?.event) {
-            return window.__TAURI__.event;  // Tauri 2.x
-        } else if (window.__TAURI__?.event) {
-            return window.__TAURI__.event;  // Tauri 1.x
+            return window.__TAURI__.event;
         }
         return null;
     }
@@ -215,6 +213,10 @@ class SshMain {
             return;
         }
 
+        // 隐藏欢迎页面
+        const welcome = document.querySelector('.ssh-welcome');
+        if (welcome) welcome.style.display = 'none';
+
         const invoke = this.getTauriInvoke();
         const tabId = this.createTab('terminal', session.name || session.host, session.id);
 
@@ -237,9 +239,20 @@ class SshMain {
             this.connections.set(tabId, { connectionId, sessionId: session.id, session });
 
             content.innerHTML = '';
+
+            // 创建终端工具栏
+            const toolbar = document.createElement('div');
+            toolbar.className = 'ssh-terminal-toolbar';
+            toolbar.innerHTML = `
+                <button class="ssh-btn ssh-btn-secondary" onclick="window.sshMain?.openSftp('${connectionId}', '${session.id}')">📁 SFTP</button>
+                <button class="ssh-btn ssh-btn-secondary" onclick="window.sshMain?.openMonitor('${connectionId}', '${session.id}')">📊 监控</button>
+            `;
+            content.appendChild(toolbar);
+
+            // 创建终端容器
             const terminalContainer = document.createElement('div');
             terminalContainer.className = 'ssh-terminal-container';
-            terminalContainer.style.height = '100%';
+            terminalContainer.style.cssText = 'flex: 1; min-height: 0;';
             content.appendChild(terminalContainer);
 
             new SshTerminal(terminalContainer, connectionId, session.id);

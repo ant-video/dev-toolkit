@@ -27,9 +27,7 @@ class SshTerminal {
     // 获取 Tauri event 模块（兼容 Tauri 1.x 和 2.x）
     getTauriEvent() {
         if (window.__TAURI__?.event) {
-            return window.__TAURI__.event;  // Tauri 2.x
-        } else if (window.__TAURI__?.event) {
-            return window.__TAURI__.event;  // Tauri 1.x
+            return window.__TAURI__.event;
         }
         return null;
     }
@@ -39,12 +37,18 @@ class SshTerminal {
     }
 
     async init() {
+        console.log('SshTerminal init started');
+
         if (!this.isTauriReady()) {
             console.error('Tauri API 未就绪');
             return;
         }
 
-        this.term = new Terminal({
+        console.log('Creating Terminal...');
+        console.log('Terminal:', typeof window.Terminal);
+        console.log('FitAddon:', window.FitAddon);
+
+        this.term = new window.Terminal({
             fontSize: 14,
             fontFamily: 'Monaco, Menlo, "Courier New", monospace',
             theme: this.getDraculaTheme(),
@@ -53,22 +57,43 @@ class SshTerminal {
             scrollback: 10000,
             allowTransparency: true,
         });
+        console.log('Terminal created');
 
-        this.fitAddon = new FitAddon();
+        // 获取 FitAddon 类
+        const FitAddonClass = window.FitAddon?.FitAddon || window.FitAddon;
+        const SearchAddonClass = window.SearchAddon?.SearchAddon || window.SearchAddon;
+        const WebLinksAddonClass = window.WebLinksAddon?.WebLinksAddon || window.WebLinksAddon;
+
+        console.log('FitAddonClass:', FitAddonClass);
+
+        this.fitAddon = new FitAddonClass();
         this.term.loadAddon(this.fitAddon);
 
-        this.searchAddon = new SearchAddon();
+        this.searchAddon = new SearchAddonClass();
         this.term.loadAddon(this.searchAddon);
 
-        const webLinksAddon = new WebLinksAddon();
+        const webLinksAddon = new WebLinksAddonClass();
         this.term.loadAddon(webLinksAddon);
 
+        console.log('Opening terminal in container:', this.container);
         this.term.open(this.container);
-        this.fitAddon.fit();
+
+        // 延迟调用 fit，确保容器已渲染
+        setTimeout(() => {
+            this.fitAddon.fit();
+            console.log('Terminal fitted');
+        }, 100);
+
+        console.log('Terminal opened');
+
+        // 写入欢迎信息
+        this.term.write('\x1b[32m正在连接终端...\x1b[0m\r\n');
 
         this.bindEvents();
         this.listenOutput();
         await this.requestPty();
+
+        console.log('SshTerminal init completed');
     }
 
     getDraculaTheme() {
@@ -99,11 +124,18 @@ class SshTerminal {
 
     bindEvents() {
         const invoke = this.getTauriInvoke();
+        console.log('bindEvents called, invoke:', !!invoke, 'connectionId:', this.connectionId);
+
         this.term.onData(data => {
+            console.log('onData triggered, data length:', data.length, 'disconnected:', this.disconnected);
             if (!this.disconnected && invoke) {
+                const bytes = Array.from(new TextEncoder().encode(data));
+                console.log('Sending to ssh_write, bytes:', bytes.length, 'connectionId:', this.connectionId);
                 invoke('ssh_write', {
                     connectionId: this.connectionId,
-                    data: Array.from(new TextEncoder().encode(data))
+                    data: bytes
+                }).then(() => {
+                    console.log('ssh_write completed successfully');
                 }).catch(e => {
                     console.error('发送数据失败:', e);
                 });
@@ -143,11 +175,17 @@ class SshTerminal {
 
     async listenOutput() {
         const event = this.getTauriEvent();
-        if (!event) return;
+        if (!event) {
+            console.error('Tauri event API not available');
+            return;
+        }
+
+        console.log('Listening for output on: ssh-output-' + this.connectionId);
 
         const unlisten = await event.listen(
             `ssh-output-${this.connectionId}`,
             (evt) => {
+                console.log('Received output data, length:', evt.payload?.length);
                 if (evt.payload && evt.payload.length > 0) {
                     const data = new Uint8Array(evt.payload);
                     this.term.write(data);
@@ -158,6 +196,7 @@ class SshTerminal {
         const unlistenDisconnect = await event.listen(
             `ssh-disconnect-${this.connectionId}`,
             () => {
+                console.log('Disconnected');
                 this.handleDisconnect();
             }
         );
@@ -166,20 +205,29 @@ class SshTerminal {
             unlisten();
             unlistenDisconnect();
         };
+
+        console.log('Event listeners registered');
     }
 
     async requestPty() {
         const invoke = this.getTauriInvoke();
-        if (!invoke) return;
+        if (!invoke) {
+            console.error('Tauri invoke API not available');
+            return;
+        }
+
+        console.log('Requesting PTY, cols:', this.term.cols, 'rows:', this.term.rows, 'connectionId:', this.connectionId);
 
         try {
-            await invoke('ssh_create_pty', {
+            const result = await invoke('ssh_create_pty', {
                 connectionId: this.connectionId,
                 cols: this.term.cols,
                 rows: this.term.rows
             });
+            console.log('PTY created successfully, result:', result);
         } catch (e) {
-            SSHUtils.showToast('创建终端失败: ' + e, 'error');
+            console.error('创建终端失败:', e);
+            this.term.write('\x1b[31m创建终端失败: ' + e + '\x1b[0m\r\n');
             this.handleDisconnect();
         }
     }
