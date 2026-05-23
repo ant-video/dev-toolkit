@@ -8,12 +8,20 @@ pub type MySqlPool = sqlx::mysql::MySqlPool;
 pub type PostgresPool = sqlx::postgres::PgPool;
 pub type SqlitePool = sqlx::sqlite::SqlitePool;
 
+/// NoSQL 连接类型
+pub type RedisConnection = redis::aio::ConnectionManager;
+pub type MongoDatabase = mongodb::Database;
+pub type ElasticsearchClient = (reqwest::Client, super::elasticsearch_driver::ElasticsearchConnInfo);
+
 /// 活跃连接
 #[derive(Clone)]
 pub enum ActivePool {
     MySql(MySqlPool),
     Postgres(PostgresPool),
     Sqlite(SqlitePool),
+    Redis(RedisConnection),
+    MongoDB(MongoDatabase),
+    Elasticsearch(ElasticsearchClient),
 }
 
 /// 连接池管理器
@@ -59,6 +67,29 @@ impl ConnectionPoolManager {
                     .map_err(|e| format!("连接失败: {}", e))?;
                 ActivePool::Sqlite(pool)
             }
+            DbType::Redis => {
+                let url = super::redis_driver::build_connection_string(config);
+                let client = redis::Client::open(url)
+                    .map_err(|e| format!("Redis 客户端创建失败: {}", e))?;
+                let conn = redis::aio::ConnectionManager::new(client)
+                    .await
+                    .map_err(|e| format!("Redis 连接失败: {}", e))?;
+                ActivePool::Redis(conn)
+            }
+            DbType::MongoDB => {
+                let url = super::mongodb_driver::build_connection_string(config);
+                let client = mongodb::Client::with_uri_str(&url)
+                    .await
+                    .map_err(|e| format!("MongoDB 连接失败: {}", e))?;
+                let db_name = if config.database.is_empty() { "test" } else { &config.database };
+                let db = client.database(db_name);
+                ActivePool::MongoDB(db)
+            }
+            DbType::Elasticsearch => {
+                let conn_info = super::elasticsearch_driver::build_connection_info(config);
+                let client = super::elasticsearch_driver::create_client();
+                ActivePool::Elasticsearch((client, conn_info))
+            }
         };
 
         let mut pools = self.pools.write().await;
@@ -81,6 +112,10 @@ impl ConnectionPoolManager {
                 ActivePool::MySql(p) => p.close().await,
                 ActivePool::Postgres(p) => p.close().await,
                 ActivePool::Sqlite(p) => p.close().await,
+                // NoSQL 连接会在 drop 时自动关闭
+                ActivePool::Redis(_) => {},
+                ActivePool::MongoDB(_) => {},
+                ActivePool::Elasticsearch(_) => {},
             }
         }
     }
@@ -93,6 +128,10 @@ impl ConnectionPoolManager {
                 ActivePool::MySql(p) => p.close().await,
                 ActivePool::Postgres(p) => p.close().await,
                 ActivePool::Sqlite(p) => p.close().await,
+                // NoSQL 连接会在 drop 时自动关闭
+                ActivePool::Redis(_) => {},
+                ActivePool::MongoDB(_) => {},
+                ActivePool::Elasticsearch(_) => {},
             }
         }
     }

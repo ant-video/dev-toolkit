@@ -9,6 +9,7 @@ class SystemMonitor {
         this.dockerContainers = [];
         this.refreshInterval = null;
 
+        window.systemMonitor = this;
         this.init();
     }
 
@@ -129,16 +130,16 @@ class SystemMonitor {
 
         if (cpuEl && this.data.cpu_usage?.length > 0) {
             const cpuUsage = this.data.cpu_usage.reduce((a, b) => a + b, 0) / this.data.cpu_usage.length;
-            cpuEl.textContent = cpuUsage.toFixed(1) + '%';
+            cpuEl.textContent = (cpuUsage * 100).toFixed(1) + '%';
         }
 
-        if (memEl && this.data.memory) {
+        if (memEl && this.data.memory && this.data.memory.total > 0) {
             const memUsage = (this.data.memory.used / this.data.memory.total * 100).toFixed(1);
             memEl.textContent = memUsage + '%';
         }
 
-        if (diskEl && this.data.disk?.[0]) {
-            diskEl.textContent = this.data.disk[0].usage + '%';
+        if (diskEl && this.data.disk?.length > 0) {
+            diskEl.textContent = this.data.disk[0].usage;
         }
 
         if (netEl && this.data.network) {
@@ -199,7 +200,47 @@ class SystemMonitor {
         `).join('');
     }
 
-    filterProcesses(keyword) {}
+    filterProcesses(keyword) {
+        const container = document.getElementById('monitor-processes');
+        if (!container) return;
+
+        const filtered = keyword
+            ? this.processes.filter(p =>
+                p.command.toLowerCase().includes(keyword.toLowerCase()) ||
+                p.user.toLowerCase().includes(keyword.toLowerCase()) ||
+                p.pid.toString().includes(keyword)
+            )
+            : this.processes;
+
+        container.innerHTML = `
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="color: var(--text-secondary); font-size: 12px;">
+                        <th style="text-align: left; padding: 4px;">PID</th>
+                        <th style="text-align: left; padding: 4px;">用户</th>
+                        <th style="text-align: left; padding: 4px;">CPU%</th>
+                        <th style="text-align: left; padding: 4px;">MEM%</th>
+                        <th style="text-align: left; padding: 4px;">命令</th>
+                        <th style="text-align: left; padding: 4px;">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${filtered.slice(0, 20).map(p => `
+                        <tr style="font-size: 13px; border-bottom: 1px solid var(--border-color);">
+                            <td style="padding: 4px;">${p.pid}</td>
+                            <td style="padding: 4px;">${p.user}</td>
+                            <td style="padding: 4px; color: ${p.cpu > 50 ? '#ff5555' : 'inherit'};">${p.cpu}%</td>
+                            <td style="padding: 4px;">${p.mem}%</td>
+                            <td style="padding: 4px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${p.command}</td>
+                            <td style="padding: 4px;">
+                                <button class="ssh-btn ssh-btn-secondary" style="padding: 2px 6px; font-size: 11px;" onclick="window.systemMonitor?.killProcess(${p.pid})">Kill</button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
 
     async killProcess(pid) {
         const invoke = this.getTauriInvoke();

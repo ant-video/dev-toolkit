@@ -236,8 +236,6 @@ class SshMain {
                 session: session
             });
 
-            this.connections.set(tabId, { connectionId, sessionId: session.id, session });
-
             content.innerHTML = '';
 
             // 创建终端工具栏
@@ -255,8 +253,9 @@ class SshMain {
             terminalContainer.style.cssText = 'flex: 1; min-height: 0;';
             content.appendChild(terminalContainer);
 
-            new SshTerminal(terminalContainer, connectionId, session.id);
+            const terminal = new SshTerminal(terminalContainer, connectionId, session.id);
 
+            this.connections.set(tabId, { connectionId, sessionId: session.id, session, terminal });
             this.updateTabStatus(tabId, 'connected');
             SSHUtils.showToast('连接成功', 'success');
 
@@ -324,18 +323,40 @@ class SshMain {
         this.activeTab = tabId;
     }
 
-    closeTab(tabId) {
+    async closeTab(tabId) {
         const conn = this.connections.get(tabId);
         const invoke = this.getTauriInvoke();
+
         if (conn && invoke) {
-            invoke('ssh_disconnect', { connectionId: conn.connectionId });
+            if (!conn.type) {
+                // 终端 tab：断开连接，并关闭共享同一连接的 SFTP/监控 tab
+                for (const [id, c] of Array.from(this.connections.entries())) {
+                    if (id !== tabId && c.connectionId === conn.connectionId) {
+                        this.closeTab(id);
+                    }
+                }
+                try {
+                    await invoke('ssh_disconnect', { connectionId: conn.connectionId });
+                } catch (e) {
+                    console.error('断开连接失败:', e);
+                }
+            }
             this.connections.delete(tabId);
+        }
+
+        // 清理资源
+        const content = document.getElementById(`tab-content-${tabId}`);
+        if (content && conn) {
+            if (conn.type === 'monitor' && conn.monitor) {
+                conn.monitor.destroy();
+            }
+            if (conn.terminal) {
+                conn.terminal.destroy();
+            }
         }
 
         const tab = document.querySelector(`.ssh-tab[data-tab-id="${tabId}"]`);
         tab?.remove();
-
-        const content = document.getElementById(`tab-content-${tabId}`);
         content?.remove();
 
         this.tabs = this.tabs.filter(t => t.id !== tabId);
@@ -361,7 +382,7 @@ class SshMain {
 
     openSftp(connectionId, sessionId) {
         const session = window.sshSessionManager?.sessions?.find(s => s.id === sessionId);
-        const tabId = this.createTab('sftp', `📁 ${session?.name || 'SFTP'}`, sessionId);
+        const tabId = this.createTab('sftp', session?.name || 'SFTP', sessionId);
 
         const content = document.getElementById(`tab-content-${tabId}`);
         if (content) {
@@ -372,12 +393,12 @@ class SshMain {
 
     openMonitor(connectionId, sessionId) {
         const session = window.sshSessionManager?.sessions?.find(s => s.id === sessionId);
-        const tabId = this.createTab('monitor', `📊 ${session?.name || '监控'}`, sessionId);
+        const tabId = this.createTab('monitor', session?.name || '监控', sessionId);
 
         const content = document.getElementById(`tab-content-${tabId}`);
         if (content) {
-            new SystemMonitor(content, connectionId);
-            this.connections.set(tabId, { connectionId, sessionId, type: 'monitor' });
+            const monitor = new SystemMonitor(content, connectionId);
+            this.connections.set(tabId, { connectionId, sessionId, type: 'monitor', monitor });
         }
     }
 }

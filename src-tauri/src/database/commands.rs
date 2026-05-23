@@ -4,10 +4,30 @@ use tauri::State;
 /// 测试数据库连接
 #[tauri::command]
 pub async fn db_test_connection(config: ConnectionConfig) -> TestResult {
-    let result = match config.db_type {
+    let result: Result<String, String> = match config.db_type {
         DbType::MySQL => super::mysql::test_connection(&config).await,
         DbType::PostgreSQL => super::postgres::test_connection(&config).await,
         DbType::SQLite => super::sqlite::test_connection(&config).await,
+        DbType::Redis => {
+            match redis::Client::open(super::redis_driver::build_connection_string(&config)) {
+                Ok(client) => match redis::aio::ConnectionManager::new(client).await {
+                    Ok(mut conn) => super::redis_driver::test_connection(&mut conn).await,
+                    Err(e) => Err(format!("Redis 连接失败: {}", e)),
+                },
+                Err(e) => Err(format!("Redis 客户端创建失败: {}", e)),
+            }
+        }
+        DbType::MongoDB => {
+            match mongodb::Client::with_uri_str(&super::mongodb_driver::build_connection_string(&config)).await {
+                Ok(client) => super::mongodb_driver::test_connection(&client).await,
+                Err(e) => Err(format!("MongoDB 连接失败: {}", e)),
+            }
+        }
+        DbType::Elasticsearch => {
+            let conn_info = super::elasticsearch_driver::build_connection_info(&config);
+            let client = reqwest::Client::new();
+            super::elasticsearch_driver::test_connection(&client, &conn_info).await
+        }
     };
 
     match result {
@@ -93,6 +113,21 @@ pub async fn db_query(
         super::pool::ActivePool::MySql(p) => super::mysql::execute_query(&p, &sql, database.as_deref()).await,
         super::pool::ActivePool::Postgres(p) => super::postgres::execute_query(&p, &sql, database.as_deref()).await,
         super::pool::ActivePool::Sqlite(p) => super::sqlite::execute_query(&p, &sql, database.as_deref()).await,
+        super::pool::ActivePool::Redis(mut conn) => super::redis_driver::execute_query(&mut conn, &sql).await,
+        super::pool::ActivePool::MongoDB(db) => {
+            // MongoDB 查询格式: collection_name?filter_json
+            let parts: Vec<&str> = sql.splitn(2, '?').collect();
+            let collection = parts[0];
+            let filter = parts.get(1).unwrap_or(&"{}");
+            super::mongodb_driver::execute_query(&db, collection, filter, None).await
+        }
+        super::pool::ActivePool::Elasticsearch((client, conn_info)) => {
+            // ES 查询格式: index?query_json
+            let parts: Vec<&str> = sql.splitn(2, '?').collect();
+            let index = parts[0];
+            let query = parts.get(1).unwrap_or(&"{}");
+            super::elasticsearch_driver::execute_query(&client, &conn_info, index, query, None).await
+        }
     }
 }
 
@@ -113,6 +148,45 @@ pub async fn db_execute(
         super::pool::ActivePool::MySql(p) => super::mysql::execute_statement(&p, &sql, database.as_deref()).await,
         super::pool::ActivePool::Postgres(p) => super::postgres::execute_statement(&p, &sql, database.as_deref()).await,
         super::pool::ActivePool::Sqlite(p) => super::sqlite::execute_statement(&p, &sql, database.as_deref()).await,
+        super::pool::ActivePool::Redis(mut conn) => super::redis_driver::execute_statement(&mut conn, &sql).await,
+        super::pool::ActivePool::MongoDB(db) => {
+            // MongoDB 写操作格式: operation:collection:data
+            // 例如: insert:users:{"name":"Alice"}
+            let parts: Vec<&str> = sql.splitn(3, ':').collect();
+            if parts.len() < 3 {
+                return Err("MongoDB 写操作格式: operation:collection:data".to_string());
+            }
+            let op = parts[0];
+            let collection = parts[1];
+            let data = parts[2];
+            match op {
+                "insert" => super::mongodb_driver::insert_document(&db, collection, data).await,
+                "update" => {
+                    let update_parts: Vec<&str> = data.splitn(2, '|').collect();
+                    if update_parts.len() < 2 {
+                        return Err("update 格式: filter|update".to_string());
+                    }
+                    super::mongodb_driver::update_documents(&db, collection, update_parts[0], update_parts[1]).await
+                }
+                "delete" => super::mongodb_driver::delete_documents(&db, collection, data).await,
+                _ => Err(format!("不支持的 MongoDB 操作: {}", op)),
+            }
+        }
+        super::pool::ActivePool::Elasticsearch((client, conn_info)) => {
+            // ES 写操作格式: operation:index:data
+            let parts: Vec<&str> = sql.splitn(3, ':').collect();
+            if parts.len() < 3 {
+                return Err("Elasticsearch 写操作格式: operation:index:data".to_string());
+            }
+            let op = parts[0];
+            let index = parts[1];
+            let data = parts[2];
+            match op {
+                "index" => super::elasticsearch_driver::insert_document(&client, &conn_info, index, data).await,
+                "delete" => super::elasticsearch_driver::delete_document(&client, &conn_info, index, data).await,
+                _ => Err(format!("不支持的 Elasticsearch 操作: {}", op)),
+            }
+        }
     }
 }
 
@@ -129,6 +203,14 @@ pub async fn db_cancel_query(
         return Err("连接 ID 不匹配".to_string());
     }
     let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
+    match &pool {
+        super::pool::ActivePool::Redis(_) |
+        super::pool::ActivePool::MongoDB(_) |
+        super::pool::ActivePool::Elasticsearch(_) => {
+            return Err("NoSQL 数据库不支持取消查询".to_string());
+        }
+        _ => {}
+    }
     super::cancel::send_cancel(&pool, &active.backend_pid).await?;
     registry.unregister(&queryToken).await;
     Ok(())
@@ -179,17 +261,16 @@ pub async fn db_get_tables(
     database: String,
     pool_manager: State<'_, ConnectionPoolManager>,
 ) -> Result<Vec<crate::database::TableInfo>, String> {
-    println!("[db_get_tables] connectionId: {}, database: {}", connectionId, database);
     let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
 
-    let result = match pool {
+    match pool {
         super::pool::ActivePool::MySql(p) => super::mysql::get_tables(&p, &database).await,
         super::pool::ActivePool::Postgres(p) => super::postgres::get_tables(&p, &database).await,
         super::pool::ActivePool::Sqlite(p) => super::sqlite::get_tables(&p).await,
-    };
-
-    println!("[db_get_tables] result: {:?}", result);
-    result
+        super::pool::ActivePool::Redis(mut conn) => super::redis_driver::get_tables(&mut conn, &database).await,
+        super::pool::ActivePool::MongoDB(db) => super::mongodb_driver::get_tables(&db).await,
+        super::pool::ActivePool::Elasticsearch((client, conn_info)) => super::elasticsearch_driver::get_tables(&client, &conn_info, &database).await,
+    }
 }
 
 /// 获取数据库列表
@@ -211,6 +292,16 @@ pub async fn db_get_databases(
                 collation: None,
             }])
         }
+        super::pool::ActivePool::Redis(mut conn) => super::redis_driver::get_databases(&mut conn).await,
+        super::pool::ActivePool::MongoDB(db) => {
+            // MongoDB 存储的是 Database，返回当前数据库名
+            Ok(vec![crate::database::DatabaseInfo {
+                name: db.name().to_string(),
+                charset: None,
+                collation: None,
+            }])
+        }
+        super::pool::ActivePool::Elasticsearch((client, conn_info)) => super::elasticsearch_driver::get_databases(&client, &conn_info).await,
     }
 }
 
@@ -228,6 +319,9 @@ pub async fn db_get_table_schema(
         super::pool::ActivePool::MySql(p) => super::mysql::get_table_schema(&p, &database, &table).await,
         super::pool::ActivePool::Postgres(p) => super::postgres::get_table_schema(&p, &database, &table).await,
         super::pool::ActivePool::Sqlite(p) => super::sqlite::get_table_schema(&p, &table).await,
+        super::pool::ActivePool::Redis(mut conn) => super::redis_driver::get_table_schema(&mut conn, &database, &table).await,
+        super::pool::ActivePool::MongoDB(db) => super::mongodb_driver::get_table_schema(&db, &table).await,
+        super::pool::ActivePool::Elasticsearch((client, conn_info)) => super::elasticsearch_driver::get_table_schema(&client, &conn_info, &database, &table).await,
     }
 }
 
@@ -297,6 +391,9 @@ pub async fn db_get_foreign_keys(
         super::pool::ActivePool::MySql(p) => super::mysql::get_foreign_keys(&p, &database, &table).await,
         super::pool::ActivePool::Postgres(p) => super::postgres::get_foreign_keys(&p, &database, &table).await,
         super::pool::ActivePool::Sqlite(p) => super::sqlite::get_foreign_keys(&p, &table).await,
+        super::pool::ActivePool::Redis(_) => Ok(vec![]),
+        super::pool::ActivePool::MongoDB(_) => Ok(vec![]),
+        super::pool::ActivePool::Elasticsearch(_) => Ok(vec![]),
     }
 }
 

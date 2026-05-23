@@ -8,6 +8,9 @@ pub enum DbType {
     MySQL,
     PostgreSQL,
     SQLite,
+    Redis,
+    MongoDB,
+    Elasticsearch,
 }
 
 /// SSL 模式
@@ -153,6 +156,9 @@ impl ConnectionConfig {
             DbType::MySQL => 3306,
             DbType::PostgreSQL => 5432,
             DbType::SQLite => 0,
+            DbType::Redis => 6379,
+            DbType::MongoDB => 27017,
+            DbType::Elasticsearch => 9200,
         }
     }
 }

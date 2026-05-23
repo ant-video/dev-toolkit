@@ -200,39 +200,33 @@ impl SshConnectionManager {
     }
 
     /// 创建SFTP（自动处理阻塞模式切换）
-    /// 保持写锁直到操作完成
     pub async fn with_sftp<F, T>(&self, connection_id: &str, f: F) -> Result<T, String>
     where
         F: FnOnce(&ssh2::Sftp) -> Result<T, String>,
     {
-        // 通知 PTY 循环暂停读取，避免阻塞模式冲突
+        // 通知 PTY 线程暂停读取（避免阻塞模式下 read 阻塞线程）
         {
             let sessions = PTY_SESSIONS.read().await;
             if let Some(pty) = sessions.get(connection_id) {
                 let _ = pty.request_tx.send(PtyRequest::SetSftpActive(true));
             }
         }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 
-        // 等待 PTY 循环处理消息
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-
+        // 写锁序列化所有阻塞操作
         let mut connections = self.connections.write().await;
         let conn = connections.get_mut(connection_id).ok_or("连接不存在")?;
 
-        // 切换到阻塞模式
         conn.session.set_blocking(true);
         let sftp = conn.session.sftp().map_err(|e| format!("创建SFTP失败: {}", e))?;
 
-        // 执行操作
         let result = f(&sftp);
 
-        // 释放 SFTP 资源
         drop(sftp);
-
-        // 恢复非阻塞模式
         conn.session.set_blocking(false);
 
-        // 通知 PTY 循环恢复读取
+        // 释放锁后再通知 PTY 恢复读取
+        drop(connections);
         {
             let sessions = PTY_SESSIONS.read().await;
             if let Some(pty) = sessions.get(connection_id) {
@@ -250,6 +244,40 @@ impl SshConnectionManager {
     {
         // 与 with_sftp 相同，但明确表示这是用于传输操作
         self.with_sftp(connection_id, f).await
+    }
+
+    /// 在阻塞模式下执行命令（写锁序列化，防止与 SFTP 并发）
+    pub async fn with_blocking<F, T>(&self, connection_id: &str, f: F) -> Result<T, String>
+    where
+        F: FnOnce(&Session) -> Result<T, String>,
+    {
+        // 通知 PTY 线程暂停读取
+        {
+            let sessions = PTY_SESSIONS.read().await;
+            if let Some(pty) = sessions.get(connection_id) {
+                let _ = pty.request_tx.send(PtyRequest::SetSftpActive(true));
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+
+        // 写锁序列化所有阻塞操作
+        let mut connections = self.connections.write().await;
+        let conn = connections.get_mut(connection_id).ok_or("连接不存在")?;
+
+        conn.session.set_blocking(true);
+        let result = f(&conn.session);
+        conn.session.set_blocking(false);
+
+        // 释放锁后再通知 PTY 恢复读取
+        drop(connections);
+        {
+            let sessions = PTY_SESSIONS.read().await;
+            if let Some(pty) = sessions.get(connection_id) {
+                let _ = pty.request_tx.send(PtyRequest::SetSftpActive(false));
+            }
+        }
+
+        result
     }
 
     /// 创建PTY终端（需要可变访问session来设置非阻塞模式）

@@ -14,6 +14,9 @@
     "global-shortcut:allow-is-registered",
     "core:webview:default",
     "core:webview:allow-create-webview",
-    "core:webview:allow-create-webview-window"
+    "core:webview:allow-create-webview-window",
+    "dialog:allow-confirm",
+    "dialog:allow-ask",
+    "dialog:allow-message"
   ]
 }

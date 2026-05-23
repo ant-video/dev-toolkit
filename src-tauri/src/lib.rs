@@ -35,6 +35,7 @@ pub fn run() {
                 })
                 .build(),
         )
+        .plugin(tauri_plugin_dialog::init())
         .manage(commands::ScreenshotState::default())
         .manage(database::ConnectionPoolManager::new())
         .manage(database::QueryRegistry::new())
@@ -174,11 +175,56 @@ pub fn run() {
             commands::ssh_sftp_write_file,
             commands::ssh_sftp_mkdir,
             commands::ssh_sftp_remove,
+            // 本地文件浏览
+            commands::ssh_local_list_dir,
+            commands::ssh_local_home_dir,
+            commands::ssh_local_root_dirs,
+            // SFTP上传下载
+            commands::ssh_sftp_upload,
+            commands::ssh_sftp_download,
             // 系统监控
             commands::ssh_monitor_data,
             commands::ssh_monitor_processes,
             commands::ssh_monitor_kill_process,
             commands::ssh_docker_list,
+            // 新增工具
+            commands::json_to_csv,
+            commands::csv_to_json,
+            commands::sql_format,
+            commands::time_diff,
+            commands::text_escape,
+            commands::text_unescape,
+            commands::jsonpath_query,
+            commands::toml_to_json,
+            commands::json_to_toml,
+            commands::json_schema_generate,
+            commands::json_schema_validate,
+            commands::protobuf_decode,
+            commands::markdown_to_html,
+            commands::json_to_typescript,
+            commands::regex_favorites_list,
+            commands::regex_favorites_save,
+            commands::regex_favorites_delete,
+            commands::ip_subnet_calculate,
+            commands::dns_lookup,
+            commands::port_scan,
+            commands::ssl_cert_info,
+            commands::ws_connect,
+            commands::ws_send,
+            commands::ws_close,
+            commands::mock_generate,
+            commands::changelog_generate,
+            commands::msgpack_decode,
+            commands::code_format,
+            // 新增工具
+            commands::hex_encode,
+            commands::hex_decode,
+            commands::json_diff,
+            commands::env_vars_list,
+            commands::system_info,
+            commands::generate_curl,
+            commands::regex_visualize,
+            commands::generate_color_palette,
         ])
         .setup(move |app| {
             let gs = app.global_shortcut();

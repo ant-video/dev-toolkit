@@ -10,6 +10,9 @@ pub enum BackendPid {
     MySql(u64),
     Postgres(i32),
     Sqlite, // SQLite 无法跨连接取消
+    Redis,
+    MongoDB,
+    Elasticsearch,
 }
 
 #[derive(Clone)]
@@ -64,6 +67,9 @@ pub async fn fetch_backend_pid(pool: &ActivePool) -> Result<BackendPid, String> 
             Ok(BackendPid::Postgres(row.0))
         }
         ActivePool::Sqlite(_) => Ok(BackendPid::Sqlite),
+        ActivePool::Redis(_) => Ok(BackendPid::Redis),
+        ActivePool::MongoDB(_) => Ok(BackendPid::MongoDB),
+        ActivePool::Elasticsearch(_) => Ok(BackendPid::Elasticsearch),
     }
 }
 
@@ -87,6 +93,9 @@ pub async fn send_cancel(pool: &ActivePool, pid: &BackendPid) -> Result<(), Stri
             Ok(())
         }
         (ActivePool::Sqlite(_), _) => Err("SQLite 不支持取消查询".to_string()),
+        (ActivePool::Redis(_), _) => Err("Redis 不支持取消查询".to_string()),
+        (ActivePool::MongoDB(_), _) => Err("MongoDB 不支持取消查询".to_string()),
+        (ActivePool::Elasticsearch(_), _) => Err("Elasticsearch 不支持取消查询".to_string()),
         _ => Err("连接类型与 PID 不匹配".to_string()),
     }
 }

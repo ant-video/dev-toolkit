@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="codemirror/foldgutter.min.css">
     <link rel="stylesheet" href="codemirror/dialog.min.css">
     <link rel="stylesheet" href="codemirror/show-hint.min.css">
-    <link rel="stylesheet" href="xterm/xterm.min.css">
+    <link rel="stylesheet" href="xterm/xterm.css">
 </head>
 <body>
     <div class="app" id="app">
@@ -37,11 +37,13 @@
                     <a class="nav-item" data-page="json">JSON 工具</a>
                     <a class="nav-item" data-page="diff">文本对比</a>
                     <a class="nav-item" data-page="regex">正则测试</a>
+                    <a class="nav-item" data-page="regex-visual">正则可视化</a>
                     <a class="nav-item" data-page="text-stats">文本统计</a>
                 </div>
                 <div class="nav-group">
                     <div class="nav-group-title">🔐 编解码</div>
                     <a class="nav-item" data-page="base64">Base64</a>
+                    <a class="nav-item" data-page="hex-codec">Hex 编解码</a>
                     <a class="nav-item" data-page="url-codec">URL 编解码</a>
                     <a class="nav-item" data-page="unicode">Unicode 转换</a>
                     <a class="nav-item" data-page="html-codec">HTML 编解码</a>
@@ -83,7 +85,12 @@
                 </div>
                 <div class="nav-group">
                     <div class="nav-group-title">🗄️ 数据库</div>
-                    <a class="nav-item" data-page="database">数据库客户端</a>
+                    <a class="nav-item" data-page="database" data-db-type="mysql">🐬 MySQL</a>
+                    <a class="nav-item" data-page="database" data-db-type="postgresql">🐘 PostgreSQL</a>
+                    <a class="nav-item" data-page="database" data-db-type="sqlite">📦 SQLite</a>
+                    <a class="nav-item" data-page="database" data-db-type="redis">🔴 Redis</a>
+                    <a class="nav-item" data-page="database" data-db-type="mongodb">🍃 MongoDB</a>
+                    <a class="nav-item" data-page="database" data-db-type="elasticsearch">🔍 Elasticsearch</a>
                 </div>
                 <div class="nav-group">
                     <div class="nav-group-title">🔌 SSH</div>
@@ -95,6 +102,46 @@
                     <a class="nav-item" data-page="text-sort">文本排序</a>
                     <a class="nav-item" data-page="text-trim">去除空行</a>
                     <a class="nav-item" data-page="translate">文本翻译</a>
+                    <a class="nav-item" data-page="text-escape">文本转义</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">📊 数据转换</div>
+                    <a class="nav-item" data-page="json-csv">JSON ↔ CSV</a>
+                    <a class="nav-item" data-page="toml-json">TOML ↔ JSON</a>
+                    <a class="nav-item" data-page="jsonpath">JSONPath 查询</a>
+                    <a class="nav-item" data-page="json-schema">JSON Schema</a>
+                    <a class="nav-item" data-page="json-ts">JSON → TS 类型</a>
+                    <a class="nav-item" data-page="json-diff">JSON Diff</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">🔧 开发工具</div>
+                    <a class="nav-item" data-page="sql-format">SQL 格式化</a>
+                    <a class="nav-item" data-page="code-format">代码格式化</a>
+                    <a class="nav-item" data-page="time-diff">时间差计算</a>
+                    <a class="nav-item" data-page="markdown-preview">Markdown 预览</a>
+                    <a class="nav-item" data-page="protobuf-decode">Protobuf 解码</a>
+                    <a class="nav-item" data-page="msgpack-decode">MessagePack 解码</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">🌐 网络工具</div>
+                    <a class="nav-item" data-page="ip-subnet">IP/子网计算器</a>
+                    <a class="nav-item" data-page="dns-lookup">DNS 查询</a>
+                    <a class="nav-item" data-page="port-scan">端口扫描</a>
+                    <a class="nav-item" data-page="ssl-cert">SSL 证书查看</a>
+                    <a class="nav-item" data-page="websocket">WebSocket 客户端</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">🎲 生成工具</div>
+                    <a class="nav-item" data-page="mock-data">Mock 数据生成</a>
+                    <a class="nav-item" data-page="regex-favorites">正则收藏夹</a>
+                    <a class="nav-item" data-page="changelog">Changelog 生成</a>
+                    <a class="nav-item" data-page="curl-generator">cURL 生成器</a>
+                    <a class="nav-item" data-page="color-palette">颜色调色板</a>
+                </div>
+                <div class="nav-group">
+                    <div class="nav-group-title">🛠️ 系统工具</div>
+                    <a class="nav-item" data-page="system-info">系统信息</a>
+                    <a class="nav-item" data-page="env-vars">环境变量</a>
                 </div>
             </nav>
             <div class="sidebar-footer">
@@ -1204,6 +1251,494 @@
                 </div>
             </div>
 
+            <!-- 文本转义 -->
+            <div class="page" id="page-text-escape">
+                <h2>📝 文本转义/反转义</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <select id="text-escape-type" class="select-field">
+                            <option value="html">HTML</option>
+                            <option value="js">JavaScript</option>
+                            <option value="url">URL</option>
+                            <option value="json">JSON</option>
+                            <option value="java">Java</option>
+                        </select>
+                    </div>
+                    <div id="text-escape-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="200"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="doTextEscape()">转义 →</button>
+                        <button class="btn btn-secondary" onclick="doTextUnescape()">← 反转义</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('textEscapeOutput')">📋 复制</button>
+                    </div>
+                    <div id="text-escape-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="200"></div>
+                    <div id="text-escape-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- JSON ↔ CSV -->
+            <div class="page" id="page-json-csv">
+                <h2>📊 JSON ↔ CSV 转换</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <label>分隔符:</label>
+                        <select id="csv-delimiter" class="select-field" style="width:80px">
+                            <option value=",">逗号 (,)</option>
+                            <option value="&#9;">制表符 (Tab)</option>
+                            <option value=";">分号 (;)</option>
+                            <option value="|">管道 (|)</option>
+                        </select>
+                    </div>
+                    <div id="json-csv-input-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="jsonToCsv()">JSON → CSV</button>
+                        <button class="btn btn-secondary" onclick="csvToJson()">CSV → JSON</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('jsonCsvOutput')">📋 复制</button>
+                    </div>
+                    <div id="json-csv-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="json-csv-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- TOML ↔ JSON -->
+            <div class="page" id="page-toml-json">
+                <h2>📋 TOML ↔ JSON 转换</h2>
+                <div class="tool-card">
+                    <div id="toml-json-input-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="tomlToJson()">TOML → JSON</button>
+                        <button class="btn btn-secondary" onclick="jsonToToml()">JSON → TOML</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('tomlJsonOutput')">📋 复制</button>
+                    </div>
+                    <div id="toml-json-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="toml-json-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- JSONPath 查询 -->
+            <div class="page" id="page-jsonpath">
+                <h2>🔍 JSONPath 查询</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="jsonpath-path" placeholder="$.store.book[0].title" class="input-field" style="flex:1;font-family:monospace">
+                        <button class="btn btn-primary" onclick="doJsonPathQuery()">查询</button>
+                    </div>
+                    <div id="jsonpath-input-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-ghost" onclick="copyEditorContent('jsonpathOutput')">📋 复制结果</button>
+                    </div>
+                    <div id="jsonpath-output-editor" class="code-editor resizable" data-min-h="100" data-default-h="200"></div>
+                    <div id="jsonpath-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- JSON Schema -->
+            <div class="page" id="page-json-schema">
+                <h2>📐 JSON Schema</h2>
+                <div class="tool-card">
+                    <div id="json-schema-input-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="generateJsonSchema()">生成 Schema</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('jsonSchemaOutput')">📋 复制</button>
+                    </div>
+                    <div id="json-schema-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="json-schema-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- JSON → TypeScript 类型 -->
+            <div class="page" id="page-json-ts">
+                <h2>🔄 JSON → TypeScript 类型</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="ts-interface-name" placeholder="接口名称 (默认 RootType)" class="input-field" style="flex:1">
+                    </div>
+                    <div id="json-ts-input-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="jsonToTsType()">生成类型</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('jsonTsOutput')">📋 复制</button>
+                    </div>
+                    <div id="json-ts-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="json-ts-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- SQL 格式化 -->
+            <div class="page" id="page-sql-format">
+                <h2>🗃️ SQL 格式化</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <label><input type="checkbox" id="sql-uppercase"> 关键字大写</label>
+                        <input type="text" id="sql-indent" placeholder="缩进 (默认 2 空格)" class="input-field" style="width:150px">
+                    </div>
+                    <div id="sql-format-input-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="doSqlFormat()">格式化</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('sqlFormatOutput')">📋 复制</button>
+                    </div>
+                    <div id="sql-format-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="sql-format-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 代码格式化 -->
+            <div class="page" id="page-code-format">
+                <h2>✨ 代码格式化</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <select id="code-format-lang" class="select-field">
+                            <option value="json">JSON</option>
+                            <option value="html">HTML</option>
+                            <option value="css">CSS</option>
+                            <option value="javascript">JavaScript</option>
+                        </select>
+                        <input type="text" id="code-format-indent" placeholder="缩进 (默认 2 空格)" class="input-field" style="width:150px">
+                    </div>
+                    <div id="code-format-input-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="doCodeFormat()">格式化</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('codeFormatOutput')">📋 复制</button>
+                    </div>
+                    <div id="code-format-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="code-format-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 时间差计算 -->
+            <div class="page" id="page-time-diff">
+                <h2>⏱️ 时间差计算</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <label>开始时间:</label>
+                        <input type="text" id="time-diff-start" placeholder="2024-01-01 00:00:00" class="input-field" style="flex:1;font-family:monospace">
+                    </div>
+                    <div class="input-row">
+                        <label>结束时间:</label>
+                        <input type="text" id="time-diff-end" placeholder="2024-12-31 23:59:59" class="input-field" style="flex:1;font-family:monospace">
+                    </div>
+                    <div class="input-row">
+                        <label>日期格式:</label>
+                        <input type="text" id="time-diff-format" value="%Y-%m-%d %H:%M:%S" class="input-field" style="flex:1;font-family:monospace">
+                        <button class="btn btn-primary" onclick="doTimeDiff()">计算</button>
+                    </div>
+                    <div id="time-diff-result" class="tool-result"></div>
+                    <div id="time-diff-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- Markdown 预览 -->
+            <div class="page" id="page-markdown-preview">
+                <h2>📖 Markdown 预览</h2>
+                <div class="tool-card">
+                    <div class="markdown-preview-container">
+                        <div id="markdown-input-editor" class="code-editor resizable" data-min-h="200" data-default-h="400"></div>
+                        <div id="markdown-preview-output" class="markdown-preview"></div>
+                    </div>
+                    <div id="markdown-preview-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- Protobuf 解码 -->
+            <div class="page" id="page-protobuf-decode">
+                <h2>📡 Protobuf 解码</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <select id="protobuf-encoding" class="select-field">
+                            <option value="base64">Base64</option>
+                            <option value="hex">Hex</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="doProtobufDecode()">解码</button>
+                    </div>
+                    <div id="protobuf-input-editor" class="code-editor resizable" data-min-h="100" data-default-h="150"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-ghost" onclick="copyEditorContent('protobufOutput')">📋 复制</button>
+                    </div>
+                    <div id="protobuf-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="protobuf-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- MessagePack 解码 -->
+            <div class="page" id="page-msgpack-decode">
+                <h2>📦 MessagePack 解码</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <select id="msgpack-encoding" class="select-field">
+                            <option value="base64">Base64</option>
+                            <option value="hex">Hex</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="doMsgpackDecode()">解码</button>
+                    </div>
+                    <div id="msgpack-input-editor" class="code-editor resizable" data-min-h="100" data-default-h="150"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-ghost" onclick="copyEditorContent('msgpackOutput')">📋 复制</button>
+                    </div>
+                    <div id="msgpack-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="250"></div>
+                    <div id="msgpack-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- IP/子网计算器 -->
+            <div class="page" id="page-ip-subnet">
+                <h2>🌐 IP/子网计算器</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="ip-subnet-input" placeholder="192.168.1.0/24" class="input-field" style="flex:1;font-family:monospace">
+                        <button class="btn btn-primary" onclick="doIpSubnetCalc()">计算</button>
+                    </div>
+                    <div id="ip-subnet-result" class="tool-result"></div>
+                    <div id="ip-subnet-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- DNS 查询 -->
+            <div class="page" id="page-dns-lookup">
+                <h2>🔍 DNS 查询</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="dns-domain" placeholder="example.com" class="input-field" style="flex:1">
+                        <select id="dns-record-type" class="select-field">
+                            <option value="A">A 记录</option>
+                            <option value="AAAA">AAAA 记录</option>
+                            <option value="MX">MX 记录</option>
+                            <option value="TXT">TXT 记录</option>
+                            <option value="NS">NS 记录</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="doDnsLookup()">查询</button>
+                    </div>
+                    <div id="dns-result" class="tool-result"></div>
+                    <div id="dns-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 端口扫描 -->
+            <div class="page" id="page-port-scan">
+                <h2>🔌 端口扫描</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="port-scan-host" placeholder="127.0.0.1" class="input-field" style="flex:1">
+                        <input type="text" id="port-scan-ports" placeholder="22,80,443 或 1-1024" class="input-field" style="flex:1">
+                        <input type="number" id="port-scan-timeout" placeholder="超时(ms)" value="1000" class="input-field" style="width:100px">
+                        <button class="btn btn-primary" onclick="doPortScan()">扫描</button>
+                    </div>
+                    <div id="port-scan-result" class="tool-result"></div>
+                    <div id="port-scan-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- SSL 证书查看 -->
+            <div class="page" id="page-ssl-cert">
+                <h2>🔒 SSL 证书查看</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="ssl-cert-domain" placeholder="google.com" class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="doSslCertLookup()">查看</button>
+                    </div>
+                    <div id="ssl-cert-result" class="tool-result"></div>
+                    <div id="ssl-cert-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- WebSocket 客户端 -->
+            <div class="page" id="page-websocket">
+                <h2>🔌 WebSocket 客户端</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="ws-url" placeholder="wss://echo.websocket.org" class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="doWsConnect()" id="ws-connect-btn">连接</button>
+                        <button class="btn btn-secondary" onclick="doWsClose()" id="ws-close-btn" disabled>断开</button>
+                    </div>
+                    <div id="ws-messages" class="tool-result" style="height:200px;overflow-y:auto;font-family:monospace;font-size:13px"></div>
+                    <div class="input-row">
+                        <input type="text" id="ws-message" placeholder="输入消息..." class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="doWsSend()" id="ws-send-btn" disabled>发送</button>
+                    </div>
+                    <div id="ws-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- Mock 数据生成 -->
+            <div class="page" id="page-mock-data">
+                <h2>🎲 Mock 数据生成</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <select id="mock-data-type" class="select-field">
+                            <option value="name">姓名</option>
+                            <option value="email">邮箱</option>
+                            <option value="phone">手机号</option>
+                            <option value="uuid">UUID</option>
+                            <option value="ip">IP 地址</option>
+                            <option value="address">地址</option>
+                            <option value="url">URL</option>
+                            <option value="color">颜色</option>
+                        </select>
+                        <input type="number" id="mock-data-count" placeholder="数量" value="10" min="1" max="1000" class="input-field" style="width:80px">
+                        <button class="btn btn-primary" onclick="doMockGenerate()">生成</button>
+                    </div>
+                    <div id="mock-output-editor" class="code-editor resizable" data-min-h="150" data-default-h="300"></div>
+                    <div id="mock-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 正则收藏夹 -->
+            <div class="page" id="page-regex-favorites">
+                <h2>⭐ 正则表达式收藏夹</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="regex-fav-name" placeholder="名称" class="input-field" style="width:150px">
+                        <input type="text" id="regex-fav-pattern" placeholder="正则表达式" class="input-field" style="flex:1;font-family:monospace">
+                        <input type="text" id="regex-fav-category" placeholder="分类" class="input-field" style="width:100px">
+                        <button class="btn btn-primary" onclick="doRegexFavSave()">保存</button>
+                    </div>
+                    <div id="regex-favorites-list" class="tool-result"></div>
+                    <div id="regex-fav-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- Changelog 生成 -->
+            <div class="page" id="page-changelog">
+                <h2>📝 Changelog 生成</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="changelog-repo-path" placeholder="仓库路径" class="input-field" style="flex:1">
+                        <input type="text" id="changelog-from" placeholder="起始 ref (可选)" class="input-field" style="width:150px">
+                        <input type="text" id="changelog-to" placeholder="结束 ref (默认 HEAD)" class="input-field" style="width:150px">
+                        <button class="btn btn-primary" onclick="doChangelogGenerate()">生成</button>
+                    </div>
+                    <div id="changelog-output-editor" class="code-editor resizable" data-min-h="200" data-default-h="400"></div>
+                    <div id="changelog-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- Hex 编解码 -->
+            <div class="page" id="page-hex-codec">
+                <h2>🔢 Hex 编解码</h2>
+                <div class="tool-card">
+                    <div id="hex-input-editor" class="code-editor resizable" data-min-h="120" data-default-h="200"></div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="doHexEncode()">编码 →</button>
+                        <button class="btn btn-secondary" onclick="doHexDecode()">← 解码</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('hexOutput')">📋 复制</button>
+                    </div>
+                    <div id="hex-output-editor" class="code-editor resizable" data-min-h="120" data-default-h="200"></div>
+                    <div id="hex-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- JSON Diff -->
+            <div class="page" id="page-json-diff">
+                <h2>🔀 JSON Diff</h2>
+                <div class="tool-card">
+                    <div class="json-diff-container">
+                        <div>
+                            <h3>旧 JSON</h3>
+                            <div id="json-diff-old-editor" class="code-editor resizable" data-min-h="200" data-default-h="300"></div>
+                        </div>
+                        <div>
+                            <h3>新 JSON</h3>
+                            <div id="json-diff-new-editor" class="code-editor resizable" data-min-h="200" data-default-h="300"></div>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="doJsonDiff()">对比</button>
+                    </div>
+                    <div id="json-diff-result" class="tool-result"></div>
+                    <div id="json-diff-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 正则可视化 -->
+            <div class="page" id="page-regex-visual">
+                <h2>🎨 正则可视化</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="regex-visual-input" placeholder="输入正则表达式，如: ^\d{3}-\w+$" class="input-field" style="flex:1;font-family:monospace">
+                        <button class="btn btn-primary" onclick="doRegexVisualize()">可视化</button>
+                    </div>
+                    <div id="regex-visual-result" class="regex-visual-container"></div>
+                    <div id="regex-visual-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 环境变量查看 -->
+            <div class="page" id="page-env-vars">
+                <h2>🔧 环境变量</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <input type="text" id="env-vars-filter" placeholder="过滤变量名或值..." class="input-field" style="flex:1">
+                        <button class="btn btn-primary" onclick="loadEnvVars()">刷新</button>
+                    </div>
+                    <div id="env-vars-list" class="env-vars-container"></div>
+                    <div id="env-vars-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 系统信息 -->
+            <div class="page" id="page-system-info">
+                <h2>💻 系统信息</h2>
+                <div class="tool-card">
+                    <button class="btn btn-primary" onclick="loadSystemInfo()" style="margin-bottom:16px">刷新信息</button>
+                    <div id="system-info-display" class="system-info-grid"></div>
+                    <div id="system-info-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- cURL 生成器 -->
+            <div class="page" id="page-curl-generator">
+                <h2>🔗 cURL 生成器</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <select id="curl-method" class="select-field" style="width:100px">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="DELETE">DELETE</option>
+                            <option value="PATCH">PATCH</option>
+                            <option value="HEAD">HEAD</option>
+                        </select>
+                        <input type="text" id="curl-url" placeholder="https://api.example.com/users" class="input-field" style="flex:1">
+                    </div>
+                    <div id="curl-headers-editor" class="code-editor resizable" data-min-h="80" data-default-h="120"></div>
+                    <div class="input-row" style="margin-top:8px">
+                        <label>请求体:</label>
+                    </div>
+                    <div id="curl-body-editor" class="code-editor resizable" data-min-h="80" data-default-h="120"></div>
+                    <div class="input-row" style="margin-top:8px">
+                        <label><input type="checkbox" id="curl-follow-redirects" checked> 跟随重定向</label>
+                        <label><input type="checkbox" id="curl-insecure"> 忽略证书</label>
+                        <input type="number" id="curl-timeout" placeholder="超时(秒)" value="30" class="input-field" style="width:100px">
+                        <button class="btn btn-primary" onclick="doGenerateCurl()">生成 cURL</button>
+                        <button class="btn btn-ghost" onclick="copyEditorContent('curlOutput')">📋 复制</button>
+                    </div>
+                    <div id="curl-output-editor" class="code-editor resizable" data-min-h="80" data-default-h="120"></div>
+                    <div id="curl-status" class="status-msg"></div>
+                </div>
+            </div>
+
+            <!-- 颜色调色板 -->
+            <div class="page" id="page-color-palette">
+                <h2>🎨 颜色调色板</h2>
+                <div class="tool-card">
+                    <div class="input-row">
+                        <label>基础颜色:</label>
+                        <input type="color" id="palette-base-color" value="#3498db" class="color-picker">
+                        <input type="text" id="palette-base-hex" value="#3498db" class="input-field" style="width:100px;font-family:monospace">
+                        <select id="palette-type" class="select-field">
+                            <option value="all">所有配色</option>
+                            <option value="monochromatic">单色</option>
+                            <option value="complementary">互补色</option>
+                            <option value="analogous">类似色</option>
+                            <option value="triadic">三色</option>
+                            <option value="split-complementary">分裂互补</option>
+                            <option value="tetradic">四色</option>
+                            <option value="shades">明暗渐变</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="doGeneratePalette()">生成</button>
+                    </div>
+                    <div id="color-palette-display" class="palette-container"></div>
+                    <div id="color-palette-status" class="status-msg"></div>
+                </div>
+            </div>
+
             <!-- 图片 Base64 互转 -->
             <div class="page" id="page-image-base64">
                 <h2>🖼️ 图片 ↔ Base64 互转</h2>
@@ -1687,6 +2222,9 @@
                                     <option value="mysql">MySQL</option>
                                     <option value="postgresql">PostgreSQL</option>
                                     <option value="sqlite">SQLite</option>
+                                    <option value="redis">Redis</option>
+                                    <option value="mongodb">MongoDB</option>
+                                    <option value="elasticsearch">Elasticsearch</option>
                                 </select>
                             </div>
                             <div class="form-row" id="db-host-row">
@@ -1932,10 +2470,10 @@
     <script src="codemirror/dialog.min.js"></script>
     <script src="codemirror/match-highlighter.min.js"></script>
     <script src="app.js"></script>
-    <script src="xterm/xterm.min.js"></script>
-    <script src="xterm/xterm-addon-fit.min.js"></script>
-    <script src="xterm/xterm-addon-search.min.js"></script>
-    <script src="xterm/xterm-addon-web-links.min.js"></script>
+    <script src="xterm/xterm.js"></script>
+    <script src="xterm/xterm-addon-fit.js"></script>
+    <script src="xterm/xterm-addon-search.js"></script>
+    <script src="xterm/xterm-addon-web-links.js"></script>
     <script src="ssh/ssh-utils.js"></script>
     <script src="ssh/ssh-sessions.js"></script>
     <script src="ssh/ssh-terminal.js"></script>

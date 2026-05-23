@@ -49,7 +49,23 @@ sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "mysql", "p
 deadpool = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
+# NoSQL 驱动
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+mongodb = "2.8"
+elasticsearch = "8.5.0-alpha.1"
+
 # SSH相关
 ssh2 = "0.9"
 whoami = "1.5"
 lazy_static = "1.4"
+
+# 新增工具依赖
+toml = "0.8"
+pulldown-cmark = "0.10"
+trust-dns-resolver = "0.23"
+tokio-tungstenite = "0.21"
+rmp-serde = "1.1"
+native-tls = "0.2"
+futures-util = "0.3"
+gethostname = "0.4"
+tauri-plugin-dialog = "2.7.1"
