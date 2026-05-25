@@ -3323,7 +3323,6 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    overflow: hidden;
     background: var(--bg-primary);
 }
 
@@ -3359,7 +3358,6 @@ body {
     display: flex;
     flex-direction: column;
     position: relative;
-    overflow: hidden;
 }
 
 .db-tab-strip {
@@ -4661,6 +4659,7 @@ li.CodeMirror-hint-active.CodeMirror-hint-keyword { color: #fff !important; }
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    min-width: 0;
 }
 
 .db-result-pager {
@@ -4716,6 +4715,7 @@ li.CodeMirror-hint-active.CodeMirror-hint-keyword { color: #fff !important; }
     flex: 1;
     overflow: auto;
     min-height: 0;
+    min-width: 0;
 }
 
 tr.db-spacer td {
