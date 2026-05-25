@@ -6510,3 +6510,82 @@ tr.db-spacer td {
     font-family: monospace;
     color: var(--text-secondary);
 }
+
+/* ===== 版本更新弹窗 ===== */
+.update-modal-content {
+    max-width: 500px;
+    width: 90%;
+}
+
+.update-current {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 12px;
+}
+
+.release-notes {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.release-notes h1,
+.release-notes h2,
+.release-notes h3 {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 8px 0 4px 0;
+    color: var(--text-primary);
+}
+
+.release-notes h1:first-child,
+.release-notes h2:first-child,
+.release-notes h3:first-child {
+    margin-top: 0;
+}
+
+.release-notes ul,
+.release-notes ol {
+    margin: 4px 0;
+    padding-left: 20px;
+}
+
+.release-notes li {
+    margin: 2px 0;
+}
+
+.release-notes code {
+    background: var(--bg-secondary);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+}
+
+.release-notes p {
+    margin: 4px 0;
+}
+
+.btn-check-update {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 2px 6px;
+    font-size: 12px;
+    transition: all var(--transition);
+    line-height: 1;
+}
+
+.btn-check-update:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+}
