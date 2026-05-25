@@ -51,76 +51,77 @@ impl redis::aio::ConnectionLike for RedisConn {
     }
 }
 
-/// 检查是否为集群模式
-pub fn is_cluster_mode(config: &ConnectionConfig) -> bool {
-    config.options.get("cluster").map(|v| v == "true").unwrap_or(false)
-}
-
-/// 构建 Redis 连接字符串（单机模式）
-pub fn build_connection_string(config: &ConnectionConfig) -> String {
-    if config.password.is_empty() {
-        format!("redis://{}:{}", config.host, config.port)
+/// 构建单节点连接字符串
+fn build_node_url(host: &str, port: u16, password: &str) -> String {
+    if password.is_empty() {
+        format!("redis://{}:{}", host, port)
     } else {
-        let encoded_password = urlencoding::encode(&config.password);
-        format!("redis://:{}@{}:{}", encoded_password, config.host, config.port)
+        let encoded_password = urlencoding::encode(password);
+        format!("redis://:{}@{}:{}", encoded_password, host, port)
     }
 }
 
-/// 解析集群节点列表
-/// host 字段支持逗号分隔的多节点，如 "10.2.40.11:6381,10.2.40.12:6381,10.2.40.13:6381"
+/// 解析 host 字段为节点列表
+/// 支持逗号分隔的多节点，如 "10.2.40.11:6381,10.2.40.12:6381"
 /// 如果节点没有指定端口，则使用 config.port 作为默认端口
-fn parse_cluster_nodes(config: &ConnectionConfig) -> Vec<String> {
+fn parse_nodes(config: &ConnectionConfig) -> Vec<(String, u16)> {
     config.host.split(',')
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|node| {
-            if node.contains(':') {
-                format!("redis://{}", node)
+            if let Some((h, p)) = node.split_once(':') {
+                (h.to_string(), p.parse().unwrap_or(config.port))
             } else {
-                format!("redis://{}:{}", node, config.port)
+                (node.to_string(), config.port)
             }
         })
         .collect()
 }
 
-/// 创建 Redis 连接（自动判断单机/集群模式）
+/// 创建 Redis 连接（自动探测单机/集群模式）
 pub async fn create_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
-    if is_cluster_mode(config) {
-        create_cluster_connection(config).await
-    } else {
-        create_single_connection(config).await
+    let nodes = parse_nodes(config);
+    if nodes.is_empty() {
+        return Err("Redis 节点列表为空".to_string());
     }
-}
 
-/// 创建单机模式连接
-async fn create_single_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
-    let url = build_connection_string(config);
+    // 用第一个节点探测
+    let (first_host, first_port) = &nodes[0];
+    let url = build_node_url(first_host, *first_port, &config.password);
     let client = redis::Client::open(url)
         .map_err(|e| format!("Redis 客户端创建失败: {}", e))?;
-    let conn = redis::aio::ConnectionManager::new(client)
+    let mut conn = redis::aio::ConnectionManager::new(client)
         .await
         .map_err(|e| format!("Redis 连接失败: {}", e))?;
-    Ok(RedisConn::Single(conn))
-}
 
-/// 创建集群模式连接
-async fn create_cluster_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
-    let node_strings = parse_cluster_nodes(config);
-    if node_strings.is_empty() {
-        return Err("集群节点列表为空".to_string());
-    }
-
-    let mut builder = redis::cluster::ClusterClientBuilder::new(node_strings);
-    if !config.password.is_empty() {
-        builder = builder.password(config.password.clone());
-    }
-
-    let client = builder.build()
-        .map_err(|e| format!("Redis 集群客户端创建失败: {}", e))?;
-    let conn = client.get_async_connection()
+    // 尝试 CLUSTER INFO 探测是否为集群
+    let is_cluster: bool = redis::cmd("CLUSTER")
+        .arg("INFO")
+        .query_async::<_, String>(&mut conn)
         .await
-        .map_err(|e| format!("Redis 集群连接失败: {}", e))?;
-    Ok(RedisConn::Cluster(conn))
+        .map(|info| info.contains("cluster_enabled:1"))
+        .unwrap_or(false);
+
+    if is_cluster && nodes.len() >= 1 {
+        // 集群模式：用所有节点建立集群连接
+        let node_urls: Vec<String> = nodes.iter()
+            .map(|(h, p)| build_node_url(h, *p, ""))
+            .collect();
+
+        let mut builder = redis::cluster::ClusterClientBuilder::new(node_urls);
+        if !config.password.is_empty() {
+            builder = builder.password(config.password.clone());
+        }
+
+        let cluster_client = builder.build()
+            .map_err(|e| format!("Redis 集群客户端创建失败: {}", e))?;
+        let cluster_conn = cluster_client.get_async_connection()
+            .await
+            .map_err(|e| format!("Redis 集群连接失败: {}", e))?;
+        Ok(RedisConn::Cluster(cluster_conn))
+    } else {
+        Ok(RedisConn::Single(conn))
+    }
 }
 
 /// 测试连接
