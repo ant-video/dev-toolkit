@@ -83,20 +83,6 @@ fn parse_cluster_nodes(config: &ConnectionConfig) -> Vec<String> {
         .collect()
 }
 
-/// 构建集群连接字符串（带密码）
-fn build_cluster_node_strings(config: &ConnectionConfig) -> Vec<String> {
-    let nodes = parse_cluster_nodes(config);
-    if config.password.is_empty() {
-        nodes
-    } else {
-        let encoded_password = urlencoding::encode(&config.password);
-        nodes.iter().map(|node| {
-            // redis://host:port -> redis://:password@host:port
-            node.replace("redis://", &format!("redis://:{}@", encoded_password))
-        }).collect()
-    }
-}
-
 /// 创建 Redis 连接（自动判断单机/集群模式）
 pub async fn create_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
     if is_cluster_mode(config) {
@@ -119,12 +105,17 @@ async fn create_single_connection(config: &ConnectionConfig) -> Result<RedisConn
 
 /// 创建集群模式连接
 async fn create_cluster_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
-    let node_strings = build_cluster_node_strings(config);
+    let node_strings = parse_cluster_nodes(config);
     if node_strings.is_empty() {
         return Err("集群节点列表为空".to_string());
     }
 
-    let client = redis::cluster::ClusterClient::new(node_strings)
+    let mut builder = redis::cluster::ClusterClientBuilder::new(node_strings);
+    if !config.password.is_empty() {
+        builder = builder.password(config.password.clone());
+    }
+
+    let client = builder.build()
         .map_err(|e| format!("Redis 集群客户端创建失败: {}", e))?;
     let conn = client.get_async_connection()
         .await
