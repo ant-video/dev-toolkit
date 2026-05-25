@@ -5396,14 +5396,18 @@ async function initDatabaseTool() {
     document.getElementById('db-message-copy')?.addEventListener('click', copyMessageLog);
 
     // NoSQL 助手示例点击 → 填入编辑器
-    document.getElementById('db-result-content')?.addEventListener('click', (e) => {
+    document.getElementById('db-nosql-help-body')?.addEventListener('click', (e) => {
         const example = e.target.closest('.helper-example');
         if (!example) return;
         const cmd = example.dataset.cmd;
         if (!cmd) return;
         const editor = getActiveEditor();
         if (editor) editor.setValue(cmd);
+        closeNoSQLHelper();
     });
+
+    // NoSQL 使用助手按钮
+    document.getElementById('db-nosql-help')?.addEventListener('click', showNoSQLHelper);
 
     // CSV 导入向导事件
     document.getElementById('db-csv-close')?.addEventListener('click', closeCsvModal);
@@ -5916,6 +5920,10 @@ function updateUIForDbType(dbType) {
     if (openSqlBtn) openSqlBtn.style.display = isSql ? '' : 'none';
     if (importCsvBtn) importCsvBtn.style.display = isSql ? '' : 'none';
     if (createTableBtn) createTableBtn.style.display = isSql ? '' : 'none';
+
+    // NoSQL 使用助手按钮
+    const helpBtn = document.getElementById('db-nosql-help');
+    if (helpBtn) helpBtn.style.display = (isRedis || isMongoDb || isElasticsearch) ? '' : 'none';
 
     // 更新执行按钮文本
     if (executeBtn) {
@@ -8035,7 +8043,22 @@ function getNoSQLHelper(dbType) {
             </div>
         </div>`;
     }
-    return '<div class="db-result-placeholder">执行查询查看结果</div>';
+    return '';
+}
+
+function showNoSQLHelper() {
+    const dbType = (dbState.connections.find(c => c.id === dbState.currentConnection) || {}).db_type;
+    if (!dbType) return;
+    const content = getNoSQLHelper(dbType);
+    if (!content) return;
+    const titles = { elasticsearch: 'Elasticsearch 使用助手', redis: 'Redis 使用助手', mongodb: 'MongoDB 使用助手' };
+    document.getElementById('db-nosql-help-title').textContent = titles[dbType] || '使用助手';
+    document.getElementById('db-nosql-help-body').innerHTML = content;
+    document.getElementById('db-nosql-help-modal').style.display = 'flex';
+}
+
+function closeNoSQLHelper() {
+    document.getElementById('db-nosql-help-modal').style.display = 'none';
 }
 
 function renderTabResult(tab) {
@@ -8044,8 +8067,7 @@ function renderTabResult(tab) {
     if (!container) return;
 
     if (!tab || !tab.result) {
-        const dbType = (dbState.connections.find(c => c.id === dbState.currentConnection) || {}).db_type;
-        container.innerHTML = getNoSQLHelper(dbType);
+        container.innerHTML = '<div class="db-result-placeholder">执行查询查看结果</div>';
         if (info) info.textContent = '就绪';
         return;
     }

@@ -4752,10 +4752,21 @@ tr.db-spacer td {
 }
 
 /* NoSQL 使用助手 */
-.db-nosql-helper {
-    padding: 16px 20px;
+.db-nosql-help-content {
+    width: 700px;
+    max-width: 90vw;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+}
+
+.db-nosql-help-content .modal-body {
     overflow-y: auto;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
+}
+
+.db-nosql-helper {
     font-size: 13px;
 }
 
