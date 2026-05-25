@@ -6557,6 +6557,24 @@ async function loadDataEditorData() {
         return;
     }
 
+    // Elasticsearch：显示索引映射结构
+    if (dbType === 'elasticsearch') {
+        const fields = dataEditor.schema.columns;
+        // 重新定义 schema 为两列：字段名 + 类型
+        dataEditor.schema = {
+            name: dataEditor.schema.name,
+            columns: [
+                { name: '字段名', data_type: 'keyword', is_primary_key: false },
+                { name: '类型', data_type: 'keyword', is_primary_key: false },
+            ]
+        };
+        dataEditor.data = fields.map(f => [f.name, f.data_type]);
+        dataEditor.totalRows = fields.length;
+        renderEditorTable();
+        document.getElementById('db-editor-page-info').textContent = `${fields.length} 个字段`;
+        return;
+    }
+
     const offset = (dataEditor.page - 1) * dataEditor.pageSize;
 
     try {
@@ -6872,12 +6890,15 @@ function initEditorEvents() {
     };
 
     // 全选
-    document.getElementById('editor-select-all').onchange = (e) => {
-        document.querySelectorAll('#db-editor-tbody .row-select').forEach(cb => {
-            cb.checked = e.target.checked;
-        });
-        updateEditorButtons();
-    };
+    const selectAllCb = document.getElementById('editor-select-all');
+    if (selectAllCb) {
+        selectAllCb.onchange = (e) => {
+            document.querySelectorAll('#db-editor-tbody .row-select').forEach(cb => {
+                cb.checked = e.target.checked;
+            });
+            updateEditorButtons();
+        };
+    }
 
     // 插入弹窗按钮
     document.getElementById('db-insert-close')?.addEventListener('click', closeInsertModal);
