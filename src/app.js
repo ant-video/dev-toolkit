@@ -5703,10 +5703,7 @@ function handleDbTypeChange() {
 
 // 浏览 SQLite 文件
 async function browseSqliteFile() {
-    const result = await invoke('open_save_dialog', {
-        defaultPath: '',
-        filters: [{ name: 'SQLite', extensions: ['db', 'sqlite', 'sqlite3'] }],
-    });
+    const result = await invoke('db_browse_sqlite_file');
     if (result) {
         document.getElementById('db-file-path').value = result;
     }

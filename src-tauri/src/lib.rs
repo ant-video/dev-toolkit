@@ -157,6 +157,7 @@ pub fn run() {
             database::commands::db_open_sql_file,
             database::commands::db_open_csv_file,
             database::commands::db_save_file,
+            database::commands::db_browse_sqlite_file,
             // SSH会话管理
             commands::ssh_list_sessions,
             commands::ssh_save_session,

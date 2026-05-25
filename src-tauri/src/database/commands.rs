@@ -429,3 +429,14 @@ pub async fn db_save_file(
     Ok(Some(path.to_string_lossy().to_string()))
 }
 
+/// 浏览选择 SQLite 数据库文件
+#[tauri::command]
+pub async fn db_browse_sqlite_file() -> Result<Option<String>, String> {
+    use rfd::FileDialog;
+    let path = FileDialog::new()
+        .add_filter("SQLite 数据库", &["db", "sqlite", "sqlite3", "db3"])
+        .add_filter("所有文件", &["*"])
+        .pick_file();
+    Ok(path.map(|p| p.to_string_lossy().to_string()))
+}
+
