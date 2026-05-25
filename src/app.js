@@ -6511,6 +6511,38 @@ function openDataEditor(tableName) {
 
 // 加载数据
 async function loadDataEditorData() {
+    const dbType = (dbState.connections.find(c => c.id === dbState.currentConnection) || {}).db_type;
+
+    // Redis：用 schema 中的数据直接展示，不需要 SQL 查询
+    if (dbType === 'redis') {
+        const columns = dataEditor.schema.columns;
+        // 每列的 comment/default 就是值，构造单行数据匹配列结构
+        const row = columns.map(col => col.comment || col.default || null);
+        dataEditor.data = [row];
+        dataEditor.totalRows = 1;
+        renderEditorTable();
+        document.getElementById('db-editor-page-info').textContent = `${columns[0]?.name === 'value' ? 'String' : columns[0]?.data_type || 'Key'} 类型`;
+        return;
+    }
+
+    // MongoDB：通过 query 命令获取文档
+    if (dbType === 'mongodb') {
+        try {
+            const result = await invoke('db_query', {
+                connectionId: dbState.currentConnection,
+                sql: `${dataEditor.tableName}?{}?20`,
+                database: dbState.currentDatabase,
+            });
+            dataEditor.data = result.rows || [];
+            dataEditor.totalRows = result.row_count || 0;
+            renderEditorTable();
+            document.getElementById('db-editor-page-info').textContent = `共 ${dataEditor.totalRows} 条`;
+        } catch (e) {
+            document.getElementById('db-editor-status').textContent = '加载失败: ' + e;
+        }
+        return;
+    }
+
     const offset = (dataEditor.page - 1) * dataEditor.pageSize;
 
     try {
