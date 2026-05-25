@@ -1,6 +1,7 @@
 mod commands;
 mod database;
 mod ssh;
+mod updater;
 
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
 
@@ -225,6 +226,8 @@ pub fn run() {
             commands::generate_curl,
             commands::regex_visualize,
             commands::generate_color_palette,
+            // 版本更新检查
+            updater::check_update,
         ])
         .setup(move |app| {
             let gs = app.global_shortcut();
