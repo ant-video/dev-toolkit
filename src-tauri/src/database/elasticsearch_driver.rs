@@ -89,6 +89,55 @@ pub async fn get_databases(client: &reqwest::Client, conn_info: &ElasticsearchCo
     Ok(databases)
 }
 
+/// 从 mapping 响应中提取字段列表
+fn extract_fields_from_mapping(body: &Value, index: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+
+    // ES 7+: index.mappings.properties
+    if let Some(props) = body[index]["mappings"]["properties"].as_object() {
+        for name in props.keys() {
+            fields.push(name.clone());
+        }
+        if !fields.is_empty() { return fields; }
+    }
+
+    // ES 6: index.mappings.{type}.properties
+    if let Some(mappings) = body[index]["mappings"].as_object() {
+        for (_type_name, type_body) in mappings {
+            if let Some(props) = type_body["properties"].as_object() {
+                for name in props.keys() {
+                    fields.push(name.clone());
+                }
+                if !fields.is_empty() { return fields; }
+            }
+        }
+    }
+
+    fields
+}
+
+/// 从样本文档提取字段（当 mapping 无显式定义时）
+async fn get_fields_from_sample(client: &reqwest::Client, conn_info: &ElasticsearchConnInfo, index: &str) -> Result<Vec<String>, String> {
+    let url = format!("{}/{}/_search?size=1", conn_info.base_url, index);
+    let body = json!({ "query": { "match_all": {} }, "size": 1 });
+    let request = client.post(&url).json(&body);
+    let response = add_auth(request, conn_info)
+        .send()
+        .await
+        .map_err(|e| format!("查询样本文档失败: {}", e))?;
+
+    let resp: Value = response.json().await.unwrap_or_default();
+    let mut fields = Vec::new();
+    if let Some(hit) = resp["hits"]["hits"].as_array().and_then(|a| a.first()) {
+        if let Some(source) = hit["_source"].as_object() {
+            for key in source.keys() {
+                fields.push(key.clone());
+            }
+        }
+    }
+    Ok(fields)
+}
+
 /// 获取索引下的映射（作为"表"）
 pub async fn get_tables(client: &reqwest::Client, conn_info: &ElasticsearchConnInfo, index: &str) -> Result<Vec<TableInfo>, String> {
     let url = format!("{}/{}/_mapping", conn_info.base_url, index);
@@ -103,32 +152,121 @@ pub async fn get_tables(client: &reqwest::Client, conn_info: &ElasticsearchConnI
             .await
             .map_err(|e| format!("解析响应失败: {}", e))?;
 
-        let mut tables = Vec::new();
+        let fields = extract_fields_from_mapping(&body, index);
 
-        if let Some(mapping) = body[index]["mappings"]["properties"].as_object() {
-            for (field_name, _) in mapping {
-                tables.push(TableInfo {
-                    name: field_name.clone(),
-                    schema: None,
-                    table_type: "field".to_string(),
-                    row_count: None,
-                });
-            }
-        }
+        // 如果 mapping 中没有字段，尝试从样本文档获取
+        let fields = if fields.is_empty() {
+            get_fields_from_sample(client, conn_info, index).await.unwrap_or_default()
+        } else {
+            fields
+        };
 
-        if tables.is_empty() {
-            tables.push(TableInfo {
+        if fields.is_empty() {
+            return Ok(vec![TableInfo {
                 name: "_doc".to_string(),
                 schema: None,
                 table_type: "type".to_string(),
                 row_count: None,
-            });
+            }]);
         }
 
-        Ok(tables)
+        Ok(fields.into_iter().map(|name| TableInfo {
+            name,
+            schema: None,
+            table_type: "field".to_string(),
+            row_count: None,
+        }).collect())
     } else {
         Err(format!("获取映射失败: HTTP {}", response.status()))
     }
+}
+
+/// 从 mapping 响应中提取字段及类型
+fn extract_columns_from_mapping(body: &Value, index: &str) -> Vec<ColumnSchema> {
+    let mut columns = Vec::new();
+
+    // ES 7+: index.mappings.properties
+    if let Some(props) = body[index]["mappings"]["properties"].as_object() {
+        for (name, field_type) in props {
+            let data_type = field_type["type"].as_str().unwrap_or("object").to_string();
+            columns.push(ColumnSchema {
+                name: name.clone(),
+                data_type,
+                length: None,
+                nullable: true,
+                default: None,
+                is_primary_key: name == "_id",
+                auto_increment: false,
+                comment: None,
+            });
+        }
+        if !columns.is_empty() { return columns; }
+    }
+
+    // ES 6: index.mappings.{type}.properties
+    if let Some(mappings) = body[index]["mappings"].as_object() {
+        for (_type_name, type_body) in mappings {
+            if let Some(props) = type_body["properties"].as_object() {
+                for (name, field_type) in props {
+                    let data_type = field_type["type"].as_str().unwrap_or("object").to_string();
+                    columns.push(ColumnSchema {
+                        name: name.clone(),
+                        data_type,
+                        length: None,
+                        nullable: true,
+                        default: None,
+                        is_primary_key: name == "_id",
+                        auto_increment: false,
+                        comment: None,
+                    });
+                }
+                if !columns.is_empty() { return columns; }
+            }
+        }
+    }
+
+    columns
+}
+
+/// 从样本文档推断字段（当 mapping 无显式定义时）
+async fn get_columns_from_sample(client: &reqwest::Client, conn_info: &ElasticsearchConnInfo, index: &str) -> Result<Vec<ColumnSchema>, String> {
+    let url = format!("{}/{}/_search?size=1", conn_info.base_url, index);
+    let body = json!({ "query": { "match_all": {} }, "size": 1 });
+    let request = client.post(&url).json(&body);
+    let response = add_auth(request, conn_info)
+        .send()
+        .await
+        .map_err(|e| format!("查询样本文档失败: {}", e))?;
+
+    let resp: Value = response.json().await.unwrap_or_default();
+    let mut columns = Vec::new();
+    if let Some(hit) = resp["hits"]["hits"].as_array().and_then(|a| a.first()) {
+        if let Some(source) = hit["_source"].as_object() {
+            for (key, val) in source {
+                let data_type = match val {
+                    Value::String(_) => "text",
+                    Value::Number(n) => {
+                        if n.is_f64() { "float" } else { "integer" }
+                    }
+                    Value::Bool(_) => "boolean",
+                    Value::Array(_) => "array",
+                    Value::Object(_) => "object",
+                    _ => "text",
+                }.to_string();
+                columns.push(ColumnSchema {
+                    name: key.clone(),
+                    data_type,
+                    length: None,
+                    nullable: true,
+                    default: None,
+                    is_primary_key: false,
+                    auto_increment: false,
+                    comment: None,
+                });
+            }
+        }
+    }
+    Ok(columns)
 }
 
 /// 获取索引映射结构
@@ -145,24 +283,14 @@ pub async fn get_table_schema(client: &reqwest::Client, conn_info: &Elasticsearc
             .await
             .map_err(|e| format!("解析响应失败: {}", e))?;
 
-        let mut columns = Vec::new();
+        let mut columns = extract_columns_from_mapping(&body, index);
 
-        if let Some(mapping) = body[index]["mappings"]["properties"].as_object() {
-            for (field_name, field_type) in mapping {
-                let data_type = field_type["type"].as_str().unwrap_or("object").to_string();
-                columns.push(ColumnSchema {
-                    name: field_name.clone(),
-                    data_type,
-                    length: None,
-                    nullable: true,
-                    default: None,
-                    is_primary_key: field_name == "_id",
-                    auto_increment: false,
-                    comment: None,
-                });
-            }
+        // 如果 mapping 中没有字段，尝试从样本文档推断
+        if columns.is_empty() {
+            columns = get_columns_from_sample(client, conn_info, index).await.unwrap_or_default();
         }
 
+        // 最终兜底
         if columns.is_empty() {
             columns.push(ColumnSchema {
                 name: "_id".to_string(),
