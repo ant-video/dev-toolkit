@@ -4744,6 +4744,100 @@ tr.db-spacer td {
     font-size: 14px;
 }
 
+/* NoSQL 使用助手 */
+.db-nosql-helper {
+    padding: 16px 20px;
+    overflow-y: auto;
+    height: 100%;
+    font-size: 13px;
+}
+
+.helper-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 14px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
+
+.helper-section {
+    margin-bottom: 14px;
+}
+
+.helper-section code {
+    display: inline-block;
+    background: var(--bg-primary);
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--accent);
+    margin-top: 4px;
+}
+
+.helper-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 4px;
+}
+
+.helper-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.helper-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.helper-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 6px;
+}
+
+.helper-example {
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+    font-size: 12px;
+    padding: 3px 6px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-primary);
+    cursor: pointer;
+    margin: 3px 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: border-color 0.15s;
+}
+
+.helper-example:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.helper-desc {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+}
+
+.helper-tip {
+    font-size: 12px;
+    color: var(--text-secondary);
+    padding: 8px 12px;
+    background: rgba(139, 233, 253, 0.06);
+    border-left: 3px solid var(--cyan);
+    border-radius: 0 4px 4px 0;
+}
+
 .db-result-table {
     width: 100%;
     border-collapse: collapse;

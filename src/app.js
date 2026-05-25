@@ -5395,6 +5395,16 @@ async function initDatabaseTool() {
     document.getElementById('db-message-clear')?.addEventListener('click', clearMessageLog);
     document.getElementById('db-message-copy')?.addEventListener('click', copyMessageLog);
 
+    // NoSQL 助手示例点击 → 填入编辑器
+    document.getElementById('db-result-content')?.addEventListener('click', (e) => {
+        const example = e.target.closest('.helper-example');
+        if (!example) return;
+        const cmd = example.dataset.cmd;
+        if (!cmd) return;
+        const editor = getActiveEditor();
+        if (editor) editor.setValue(cmd);
+    });
+
     // CSV 导入向导事件
     document.getElementById('db-csv-close')?.addEventListener('click', closeCsvModal);
     document.getElementById('db-csv-cancel')?.addEventListener('click', closeCsvModal);
@@ -5953,6 +5963,10 @@ async function connectToDatabase(connectionId) {
             // 根据数据库类型更新界面
             updateUIForDbType(conn.db_type);
         }
+
+        // 刷新结果区（显示 NoSQL 使用助手）
+        const activeTab = getActiveTab();
+        if (activeTab) renderTabResult(activeTab);
 
         // 更新状态指示器
         document.querySelectorAll('.db-connection-item').forEach(item => {
@@ -7889,13 +7903,128 @@ function displayError(error, duration) {
     dbShowStatus('执行失败', 'error');
 }
 
+function getNoSQLHelper(dbType) {
+    if (dbType === 'elasticsearch') {
+        return `<div class="db-nosql-helper">
+            <div class="helper-title">Elasticsearch 使用助手</div>
+            <div class="helper-section">
+                <div class="helper-label">查询格式</div>
+                <code>索引名?查询JSON</code>
+            </div>
+            <div class="helper-grid">
+                <div class="helper-card">
+                    <div class="helper-card-title">基础查询</div>
+                    <div class="helper-example" data-cmd="my_index">my_index</div>
+                    <div class="helper-desc">查询全部（match_all，前100条）</div>
+                    <div class="helper-example" data-cmd="my_index?{}">my_index?{}</div>
+                    <div class="helper-desc">同上，显式空查询</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">条件查询</div>
+                    <div class="helper-example" data-cmd='my_index?{"query":{"match":{"name":"张三"}}}'>my_index?{"query":{"match":{"name":"张三"}}}</div>
+                    <div class="helper-desc">全文匹配</div>
+                    <div class="helper-example" data-cmd='my_index?{"query":{"term":{"status":"active"}}}'>my_index?{"query":{"term":{"status":"active"}}}</div>
+                    <div class="helper-desc">精确匹配</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">复合查询</div>
+                    <div class="helper-example" data-cmd='my_index?{"query":{"bool":{"must":[{"match":{"name":"张三"}},{"range":{"age":{"gte":18}}}]}},"size":50}'>my_index?{"query":{"bool":{"must":[...]}},"size":50}</div>
+                    <div class="helper-desc">bool 组合 + 分页</div>
+                    <div class="helper-example" data-cmd='my_index?{"query":{"range":{"created_at":{"gte":"2024-01-01"}}},"sort":[{"created_at":"desc"}]}'>my_index?{"query":{"range":{...}},"sort":[...]}</div>
+                    <div class="helper-desc">范围 + 排序</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">写入操作</div>
+                    <div class="helper-example" data-cmd='index:my_index:{"name":"张三","age":25}'>index:my_index:{"name":"张三","age":25}</div>
+                    <div class="helper-desc">写入文档（自动生成 ID）</div>
+                    <div class="helper-example" data-cmd='delete:my_index:文档ID'>delete:my_index:文档ID</div>
+                    <div class="helper-desc">删除指定文档</div>
+                </div>
+            </div>
+            <div class="helper-tip">提示：左侧选择索引后，点击字段名可查看映射结构</div>
+        </div>`;
+    }
+    if (dbType === 'redis') {
+        return `<div class="db-nosql-helper">
+            <div class="helper-title">Redis 使用助手</div>
+            <div class="helper-grid">
+                <div class="helper-card">
+                    <div class="helper-card-title">字符串</div>
+                    <div class="helper-example" data-cmd="GET key">GET key</div>
+                    <div class="helper-example" data-cmd="SET key value">SET key value</div>
+                    <div class="helper-example" data-cmd="MGET key1 key2">MGET key1 key2</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">哈希</div>
+                    <div class="helper-example" data-cmd="HGETALL myhash">HGETALL myhash</div>
+                    <div class="helper-example" data-cmd="HSET myhash field value">HSET myhash field value</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">列表</div>
+                    <div class="helper-example" data-cmd="LRANGE mylist 0 -1">LRANGE mylist 0 -1</div>
+                    <div class="helper-example" data-cmd="LPUSH mylist item">LPUSH mylist item</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">集合 / 有序集合</div>
+                    <div class="helper-example" data-cmd="SMEMBERS myset">SMEMBERS myset</div>
+                    <div class="helper-example" data-cmd="ZRANGE myzset 0 -1 WITHSCORES">ZRANGE myzset 0 -1 WITHSCORES</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">键操作</div>
+                    <div class="helper-example" data-cmd="KEYS *">KEYS *</div>
+                    <div class="helper-example" data-cmd="TYPE key">TYPE key</div>
+                    <div class="helper-example" data-cmd="TTL key">TTL key</div>
+                    <div class="helper-example" data-cmd="DEL key">DEL key</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">服务器</div>
+                    <div class="helper-example" data-cmd="INFO">INFO</div>
+                    <div class="helper-example" data-cmd="DBSIZE">DBSIZE</div>
+                </div>
+            </div>
+            <div class="helper-tip">提示：输入 GET 遇到 WRONGTYPE 时会自动检测 key 类型并用正确命令重试</div>
+        </div>`;
+    }
+    if (dbType === 'mongodb') {
+        return `<div class="db-nosql-helper">
+            <div class="helper-title">MongoDB 使用助手</div>
+            <div class="helper-section">
+                <div class="helper-label">查询格式</div>
+                <code>collection?filter_json</code>
+            </div>
+            <div class="helper-grid">
+                <div class="helper-card">
+                    <div class="helper-card-title">查询</div>
+                    <div class="helper-example" data-cmd="users">users</div>
+                    <div class="helper-desc">查询全部文档</div>
+                    <div class="helper-example" data-cmd='users?{"name":"Alice"}'>users?{"name":"Alice"}</div>
+                    <div class="helper-desc">条件查询</div>
+                    <div class="helper-example" data-cmd='users?{"age":{"$gte":18}}'>users?{"age":{"$gte":18}}</div>
+                    <div class="helper-desc">范围查询</div>
+                </div>
+                <div class="helper-card">
+                    <div class="helper-card-title">写入操作</div>
+                    <div class="helper-example" data-cmd='insert:users:{"name":"Bob","age":30}'>insert:users:{"name":"Bob","age":30}</div>
+                    <div class="helper-desc">插入文档</div>
+                    <div class="helper-example" data-cmd='update:users:{"name":"Bob"}|{"$set":{"age":31}}'>update:users:filter|update</div>
+                    <div class="helper-desc">更新文档（filter|update）</div>
+                    <div class="helper-example" data-cmd='delete:users:{"name":"Bob"}'>delete:users:{"name":"Bob"}</div>
+                    <div class="helper-desc">删除文档</div>
+                </div>
+            </div>
+        </div>`;
+    }
+    return '<div class="db-result-placeholder">执行查询查看结果</div>';
+}
+
 function renderTabResult(tab) {
     const container = document.getElementById('db-result-content');
     const info = document.getElementById('db-result-info');
     if (!container) return;
 
     if (!tab || !tab.result) {
-        container.innerHTML = '<div class="db-result-placeholder">执行查询查看结果</div>';
+        const dbType = (dbState.connections.find(c => c.id === dbState.currentConnection) || {}).db_type;
+        container.innerHTML = getNoSQLHelper(dbType);
         if (info) info.textContent = '就绪';
         return;
     }
