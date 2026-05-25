@@ -146,6 +146,7 @@
             </nav>
             <div class="sidebar-footer">
                 <span>v1.0.0</span>
+                <button id="btn-check-update" class="btn-check-update" title="检查更新">🔄</button>
             </div>
         </aside>
         <main class="content">
@@ -2480,5 +2481,23 @@
     <script src="ssh/ssh-sftp.js"></script>
     <script src="ssh/ssh-monitor.js"></script>
     <script src="ssh/ssh-main.js"></script>
+<!-- 更新通知弹窗 -->
+<div id="update-modal" class="modal">
+    <div class="modal-content update-modal-content">
+        <div class="modal-header">
+            <h3>🆕 发现新版本 v<span id="update-version"></span></h3>
+            <button class="modal-close" onclick="hideUpdateModal()">✕</button>
+        </div>
+        <div class="modal-body">
+            <p class="update-current">当前版本：v<span id="current-version"></span></p>
+            <div id="release-notes" class="release-notes"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-ghost" onclick="hideUpdateModal()">稍后提醒</button>
+            <button class="btn btn-ghost" onclick="ignoreUpdateVersion()">忽略此版本</button>
+            <button class="btn btn-primary" onclick="openDownloadUrl()">跳转下载</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>
