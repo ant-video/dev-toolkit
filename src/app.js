@@ -5815,6 +5815,7 @@ function renderConnectionList() {
         <div class="db-connection-item" data-id="${escapeHtmlAttr(conn.id)}" draggable="true">
             <span class="db-connection-icon">${icons[conn.db_type] || '🗄️'}</span>
             <span class="db-connection-name">${escapeHtml(conn.name)}</span>
+            <span class="db-connection-mode" data-id="${escapeHtmlAttr(conn.id)}"></span>
             <span class="db-connection-status"></span>
             <div class="db-connection-actions">
                 <button class="db-conn-action db-conn-edit" data-id="${escapeHtmlAttr(conn.id)}" title="编辑">✏️</button>
@@ -5965,6 +5966,18 @@ async function connectToDatabase(connectionId) {
             item.querySelector('.db-connection-status')?.classList.add('connected');
         }
 
+        // 获取并显示连接模式（集群/单机）
+        if (conn?.db_type === 'redis') {
+            try {
+                const mode = await invoke('db_get_connection_mode', { connectionId });
+                const modeEl = document.querySelector(`.db-connection-mode[data-id="${connectionId}"]`);
+                if (modeEl) {
+                    modeEl.textContent = mode === 'cluster' ? '集群' : '单机';
+                    modeEl.className = `db-connection-mode ${mode === 'cluster' ? 'mode-cluster' : 'mode-single'}`;
+                }
+            } catch (_) {}
+        }
+
         // 更新选择器
         document.getElementById('db-connection-select').value = connectionId;
 
@@ -6003,6 +6016,8 @@ async function disconnectDatabase(connectionId) {
         if (item) {
             item.classList.remove('active');
             item.querySelector('.db-connection-status')?.classList.remove('connected');
+            const modeEl = item.querySelector('.db-connection-mode');
+            if (modeEl) { modeEl.textContent = ''; modeEl.className = 'db-connection-mode'; }
         }
 
         dbShowStatus('已断开连接', 'info');

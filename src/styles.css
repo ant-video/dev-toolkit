@@ -3170,6 +3170,24 @@ body {
     box-shadow: 0 0 6px var(--green);
 }
 
+.db-connection-mode {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    line-height: 1.4;
+    white-space: nowrap;
+}
+
+.db-connection-mode.mode-cluster {
+    background: rgba(255, 121, 198, 0.15);
+    color: #ff79c6;
+}
+
+.db-connection-mode.mode-single {
+    background: rgba(80, 250, 123, 0.1);
+    color: #50fa7b;
+}
+
 .db-connection-actions {
     display: none;
     position: absolute;

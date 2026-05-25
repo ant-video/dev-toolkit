@@ -78,6 +78,37 @@ fn parse_nodes(config: &ConnectionConfig) -> Vec<(String, u16)> {
         .collect()
 }
 
+/// 探测 Redis 节点是否为集群模式
+async fn detect_cluster(conn: &mut redis::aio::ConnectionManager) -> bool {
+    // 方法1：CLUSTER NODES（集群节点返回节点列表，非集群返回 ERR）
+    if let Ok(val) = redis::cmd("CLUSTER")
+        .arg("NODES")
+        .query_async::<_, redis::Value>(conn)
+        .await
+    {
+        match &val {
+            redis::Value::Data(_) => return true,
+            _ => {}
+        }
+    }
+
+    // 方法2：CLUSTER INFO（检查 cluster_enabled）
+    if let Ok(val) = redis::cmd("CLUSTER")
+        .arg("INFO")
+        .query_async::<_, redis::Value>(conn)
+        .await
+    {
+        if let redis::Value::Data(bytes) = &val {
+            let info = String::from_utf8_lossy(bytes);
+            if info.contains("cluster_enabled:1") {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// 创建 Redis 连接（自动探测单机/集群模式）
 pub async fn create_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
     let nodes = parse_nodes(config);
@@ -94,15 +125,9 @@ pub async fn create_connection(config: &ConnectionConfig) -> Result<RedisConn, S
         .await
         .map_err(|e| format!("Redis 连接失败: {}", e))?;
 
-    // 尝试 CLUSTER INFO 探测是否为集群
-    let is_cluster: bool = redis::cmd("CLUSTER")
-        .arg("INFO")
-        .query_async::<_, String>(&mut conn)
-        .await
-        .map(|info| info.contains("cluster_enabled:1"))
-        .unwrap_or(false);
+    let is_cluster = detect_cluster(&mut conn).await;
 
-    if is_cluster && nodes.len() >= 1 {
+    if is_cluster {
         // 集群模式：用所有节点建立集群连接
         let node_urls: Vec<String> = nodes.iter()
             .map(|(h, p)| build_node_url(h, *p, ""))

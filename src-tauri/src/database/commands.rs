@@ -93,6 +93,21 @@ pub async fn db_disconnect(
     Ok(())
 }
 
+/// 获取连接模式（集群/单机）
+#[tauri::command]
+pub async fn db_get_connection_mode(
+    connectionId: String,
+    pool_manager: State<'_, ConnectionPoolManager>,
+) -> Result<String, String> {
+    let pool = pool_manager.get_pool(&connectionId).await.ok_or("连接不存在")?;
+    match pool {
+        super::pool::ActivePool::Redis(conn) => {
+            Ok(if conn.is_cluster() { "cluster".to_string() } else { "single".to_string() })
+        }
+        _ => Ok("single".to_string()),
+    }
+}
+
 /// 执行查询
 #[tauri::command]
 pub async fn db_query(

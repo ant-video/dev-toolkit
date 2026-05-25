@@ -146,6 +146,7 @@ pub fn run() {
             database::commands::db_delete_connection,
             database::commands::db_connect,
             database::commands::db_disconnect,
+            database::commands::db_get_connection_mode,
             database::commands::db_query,
             database::commands::db_execute,
             database::commands::db_cancel_query,
