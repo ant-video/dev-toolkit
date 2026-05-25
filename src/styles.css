@@ -183,6 +183,7 @@ body {
 .content {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     padding: 32px 40px;
     background: var(--bg-primary);
 }
@@ -5333,11 +5334,13 @@ tr.db-spacer td {
 #page-database.active {
     display: flex;
     height: calc(100vh - 80px);
+    overflow: hidden;
 }
 
 #page-database.active > .db-container {
     flex: 1;
     min-height: 0;
+    overflow: hidden;
 }
 
 /* Hover and active state variables */
