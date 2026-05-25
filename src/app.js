@@ -5644,12 +5644,17 @@ function handleDbTypeChange() {
     const fileRow = document.getElementById('db-file-row');
     const portInput = document.getElementById('db-port-input');
 
+    const clusterRow = document.getElementById('db-redis-cluster-row');
+    const hostLabel = document.getElementById('db-host-label');
+    const hostInput = document.getElementById('db-host-input');
+
     if (dbType === 'sqlite') {
         hostRow.style.display = 'none';
         usernameRow.style.display = 'none';
         passwordRow.style.display = 'none';
         databaseRow.style.display = 'none';
         fileRow.style.display = 'block';
+        if (clusterRow) clusterRow.style.display = 'none';
     } else {
         hostRow.style.display = 'flex';
         usernameRow.style.display = 'block';
@@ -5673,6 +5678,17 @@ function handleDbTypeChange() {
             } else {
                 dbLabel.textContent = '数据库';
             }
+        }
+
+        // Redis 集群模式选项
+        if (clusterRow) {
+            clusterRow.style.display = dbType === 'redis' ? 'block' : 'none';
+        }
+        if (hostLabel) {
+            hostLabel.textContent = (dbType === 'redis') ? '主机（集群可逗号分隔）' : '主机';
+        }
+        if (hostInput) {
+            hostInput.placeholder = (dbType === 'redis') ? 'localhost 或 10.0.0.1:6381,10.0.0.2:6381' : '';
         }
     }
 }
@@ -5703,7 +5719,7 @@ async function testConnection() {
         password: formData.get('password') || '',
         database: dbType === 'sqlite' ? formData.get('database_file') : formData.get('database'),
         ssl_mode: 'preferred',
-        options: {},
+        options: dbType === 'redis' && document.getElementById('db-redis-cluster')?.checked ? { cluster: 'true' } : {},
     };
 
     dbShowStatus('正在测试连接...', 'info');
@@ -5736,7 +5752,7 @@ async function saveConnection() {
         password: formData.get('password') || '',
         database: dbType === 'sqlite' ? formData.get('database_file') : formData.get('database'),
         ssl_mode: 'preferred',
-        options: {},
+        options: dbType === 'redis' && document.getElementById('db-redis-cluster')?.checked ? { cluster: 'true' } : {},
         group: (formData.get('group') || '').toString().trim() || null,
     };
 
@@ -6026,6 +6042,9 @@ async function editConnection(connectionId) {
         form.querySelector('[name="database"]').value = conn.database || '';
         const groupInput = form.querySelector('[name="group"]');
         if (groupInput) groupInput.value = conn.group || '';
+        // Redis 集群模式复选框
+        const clusterCb = document.getElementById('db-redis-cluster');
+        if (clusterCb) clusterCb.checked = conn.options?.cluster === 'true';
 
         // 保存正在编辑的 ID
         form.dataset.editId = connectionId;

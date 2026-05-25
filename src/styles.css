@@ -5125,6 +5125,14 @@ tr.db-spacer td {
     flex: 1;
 }
 
+.form-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
 .file-input-group {
     display: flex;
     gap: 8px;
