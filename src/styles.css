@@ -3323,16 +3323,19 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow-x: hidden;
     background: var(--bg-primary);
 }
 
 .db-toolbar {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 8px 12px;
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
 }
 
 .db-select {
@@ -3358,6 +3361,7 @@ body {
     display: flex;
     flex-direction: column;
     position: relative;
+    overflow-x: hidden;
 }
 
 .db-tab-strip {
