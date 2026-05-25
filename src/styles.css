@@ -3323,6 +3323,7 @@ body {
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow: hidden;
     background: var(--bg-primary);
 }
 
@@ -3358,6 +3359,7 @@ body {
     display: flex;
     flex-direction: column;
     position: relative;
+    overflow: hidden;
 }
 
 .db-tab-strip {
