@@ -9,7 +9,7 @@ pub type PostgresPool = sqlx::postgres::PgPool;
 pub type SqlitePool = sqlx::sqlite::SqlitePool;
 
 /// NoSQL 连接类型
-pub type RedisConnection = redis::aio::ConnectionManager;
+pub type RedisConnection = super::redis_driver::RedisConn;
 pub type MongoDatabase = mongodb::Database;
 pub type ElasticsearchClient = (reqwest::Client, super::elasticsearch_driver::ElasticsearchConnInfo);
 
@@ -68,12 +68,7 @@ impl ConnectionPoolManager {
                 ActivePool::Sqlite(pool)
             }
             DbType::Redis => {
-                let url = super::redis_driver::build_connection_string(config);
-                let client = redis::Client::open(url)
-                    .map_err(|e| format!("Redis 客户端创建失败: {}", e))?;
-                let conn = redis::aio::ConnectionManager::new(client)
-                    .await
-                    .map_err(|e| format!("Redis 连接失败: {}", e))?;
+                let conn = super::redis_driver::create_connection(config).await?;
                 ActivePool::Redis(conn)
             }
             DbType::MongoDB => {

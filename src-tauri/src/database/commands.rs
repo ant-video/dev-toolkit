@@ -9,12 +9,9 @@ pub async fn db_test_connection(config: ConnectionConfig) -> TestResult {
         DbType::PostgreSQL => super::postgres::test_connection(&config).await,
         DbType::SQLite => super::sqlite::test_connection(&config).await,
         DbType::Redis => {
-            match redis::Client::open(super::redis_driver::build_connection_string(&config)) {
-                Ok(client) => match redis::aio::ConnectionManager::new(client).await {
-                    Ok(mut conn) => super::redis_driver::test_connection(&mut conn).await,
-                    Err(e) => Err(format!("Redis 连接失败: {}", e)),
-                },
-                Err(e) => Err(format!("Redis 客户端创建失败: {}", e)),
+            match super::redis_driver::create_connection(&config).await {
+                Ok(mut conn) => super::redis_driver::test_connection(&mut conn).await,
+                Err(e) => Err(e),
             }
         }
         DbType::MongoDB => {

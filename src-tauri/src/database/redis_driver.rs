@@ -4,7 +4,59 @@ use std::time::Duration;
 
 const QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// 构建 Redis 连接字符串
+/// Redis 连接类型（支持单机和集群模式）
+#[derive(Clone)]
+pub enum RedisConn {
+    /// 单机模式连接
+    Single(redis::aio::ConnectionManager),
+    /// 集群模式连接
+    Cluster(redis::cluster_async::ClusterConnection),
+}
+
+impl RedisConn {
+    /// 是否为集群模式
+    pub fn is_cluster(&self) -> bool {
+        matches!(self, RedisConn::Cluster(_))
+    }
+}
+
+impl redis::aio::ConnectionLike for RedisConn {
+    fn req_packed_command<'a>(
+        &'a mut self,
+        cmd: &'a redis::Cmd,
+    ) -> redis::RedisFuture<'a, redis::Value> {
+        match self {
+            RedisConn::Single(conn) => conn.req_packed_command(cmd),
+            RedisConn::Cluster(conn) => conn.req_packed_command(cmd),
+        }
+    }
+
+    fn req_packed_commands<'a>(
+        &'a mut self,
+        pipeline: &'a redis::Pipeline,
+        offset: usize,
+        count: usize,
+    ) -> redis::RedisFuture<'a, Vec<redis::Value>> {
+        match self {
+            RedisConn::Single(conn) => conn.req_packed_commands(pipeline, offset, count),
+            RedisConn::Cluster(conn) => conn.req_packed_commands(pipeline, offset, count),
+        }
+    }
+
+    fn get_db(&self) -> i64 {
+        match self {
+            RedisConn::Single(conn) => conn.get_db(),
+            RedisConn::Cluster(conn) => conn.get_db(),
+        }
+    }
+}
+
+/// 检查是否为集群模式
+pub fn is_cluster_mode(config: &ConnectionConfig) -> bool {
+    config.options.get("cluster").map(|v| v == "true").unwrap_or(false)
+}
+
+/// 构建 Redis 连接字符串（单机模式）
 pub fn build_connection_string(config: &ConnectionConfig) -> String {
     if config.password.is_empty() {
         format!("redis://{}:{}", config.host, config.port)
@@ -14,8 +66,74 @@ pub fn build_connection_string(config: &ConnectionConfig) -> String {
     }
 }
 
+/// 解析集群节点列表
+/// host 字段支持逗号分隔的多节点，如 "10.2.40.11:6381,10.2.40.12:6381,10.2.40.13:6381"
+/// 如果节点没有指定端口，则使用 config.port 作为默认端口
+fn parse_cluster_nodes(config: &ConnectionConfig) -> Vec<String> {
+    config.host.split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|node| {
+            if node.contains(':') {
+                format!("redis://{}", node)
+            } else {
+                format!("redis://{}:{}", node, config.port)
+            }
+        })
+        .collect()
+}
+
+/// 构建集群连接字符串（带密码）
+fn build_cluster_node_strings(config: &ConnectionConfig) -> Vec<String> {
+    let nodes = parse_cluster_nodes(config);
+    if config.password.is_empty() {
+        nodes
+    } else {
+        let encoded_password = urlencoding::encode(&config.password);
+        nodes.iter().map(|node| {
+            // redis://host:port -> redis://:password@host:port
+            node.replace("redis://", &format!("redis://:{}@", encoded_password))
+        }).collect()
+    }
+}
+
+/// 创建 Redis 连接（自动判断单机/集群模式）
+pub async fn create_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
+    if is_cluster_mode(config) {
+        create_cluster_connection(config).await
+    } else {
+        create_single_connection(config).await
+    }
+}
+
+/// 创建单机模式连接
+async fn create_single_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
+    let url = build_connection_string(config);
+    let client = redis::Client::open(url)
+        .map_err(|e| format!("Redis 客户端创建失败: {}", e))?;
+    let conn = redis::aio::ConnectionManager::new(client)
+        .await
+        .map_err(|e| format!("Redis 连接失败: {}", e))?;
+    Ok(RedisConn::Single(conn))
+}
+
+/// 创建集群模式连接
+async fn create_cluster_connection(config: &ConnectionConfig) -> Result<RedisConn, String> {
+    let node_strings = build_cluster_node_strings(config);
+    if node_strings.is_empty() {
+        return Err("集群节点列表为空".to_string());
+    }
+
+    let client = redis::cluster::ClusterClient::new(node_strings)
+        .map_err(|e| format!("Redis 集群客户端创建失败: {}", e))?;
+    let conn = client.get_async_connection()
+        .await
+        .map_err(|e| format!("Redis 集群连接失败: {}", e))?;
+    Ok(RedisConn::Cluster(conn))
+}
+
 /// 测试连接
-pub async fn test_connection(conn: &mut redis::aio::ConnectionManager) -> Result<String, String> {
+pub async fn test_connection(conn: &mut RedisConn) -> Result<String, String> {
     let result = tokio::time::timeout(QUERY_TIMEOUT, async {
         let info: String = redis::cmd("INFO")
             .query_async(conn)
@@ -26,10 +144,17 @@ pub async fn test_connection(conn: &mut redis::aio::ConnectionManager) -> Result
         for line in info.lines() {
             if line.starts_with("redis_version:") {
                 let version = line.trim_start_matches("redis_version:").trim();
+                if conn.is_cluster() {
+                    return Ok(format!("Redis {} (Cluster)", version));
+                }
                 return Ok(format!("Redis {}", version));
             }
         }
-        Ok("Redis".to_string())
+        if conn.is_cluster() {
+            Ok("Redis Cluster".to_string())
+        } else {
+            Ok("Redis".to_string())
+        }
     }).await;
 
     match result {
@@ -39,7 +164,16 @@ pub async fn test_connection(conn: &mut redis::aio::ConnectionManager) -> Result
 }
 
 /// 获取数据库列表（Redis 的 keyspaces）
-pub async fn get_databases(conn: &mut redis::aio::ConnectionManager) -> Result<Vec<DatabaseInfo>, String> {
+pub async fn get_databases(conn: &mut RedisConn) -> Result<Vec<DatabaseInfo>, String> {
+    // 集群模式只支持 db0
+    if conn.is_cluster() {
+        return Ok(vec![DatabaseInfo {
+            name: "db0".to_string(),
+            charset: None,
+            collation: None,
+        }]);
+    }
+
     let info: String = redis::cmd("INFO")
         .arg("keyspace")
         .query_async(conn)
@@ -84,14 +218,16 @@ pub async fn get_databases(conn: &mut redis::aio::ConnectionManager) -> Result<V
 }
 
 /// 获取 key 列表（作为"表"）
-pub async fn get_tables(conn: &mut redis::aio::ConnectionManager, database: &str) -> Result<Vec<TableInfo>, String> {
-    // 选择数据库
-    let db_num: u32 = database.trim_start_matches("db").parse().unwrap_or(0);
-    redis::cmd("SELECT")
-        .arg(db_num)
-        .query_async::<_, ()>(conn)
-        .await
-        .map_err(|e| format!("切换数据库失败: {}", e))?;
+pub async fn get_tables(conn: &mut RedisConn, database: &str) -> Result<Vec<TableInfo>, String> {
+    // 集群模式不支持 SELECT
+    if !conn.is_cluster() {
+        let db_num: u32 = database.trim_start_matches("db").parse().unwrap_or(0);
+        redis::cmd("SELECT")
+            .arg(db_num)
+            .query_async::<_, ()>(conn)
+            .await
+            .map_err(|e| format!("切换数据库失败: {}", e))?;
+    }
 
     // 获取 key 数量
     let db_size: u32 = redis::cmd("DBSIZE")
@@ -135,7 +271,7 @@ pub async fn get_tables(conn: &mut redis::aio::ConnectionManager, database: &str
 }
 
 /// 获取 key 的结构（类型和值）
-pub async fn get_table_schema(conn: &mut redis::aio::ConnectionManager, _database: &str, table: &str) -> Result<TableSchema, String> {
+pub async fn get_table_schema(conn: &mut RedisConn, _database: &str, table: &str) -> Result<TableSchema, String> {
     let key_type: String = redis::cmd("TYPE")
         .arg(table)
         .query_async(conn)
@@ -296,7 +432,7 @@ fn read_command_for_type(key_type: &str, key: &str) -> (String, Vec<String>) {
 }
 
 /// 执行 Redis 命令
-pub async fn execute_query(conn: &mut redis::aio::ConnectionManager, command: &str) -> Result<QueryResult, String> {
+pub async fn execute_query(conn: &mut RedisConn, command: &str) -> Result<QueryResult, String> {
     let start = std::time::Instant::now();
 
     // 解析命令
@@ -306,6 +442,12 @@ pub async fn execute_query(conn: &mut redis::aio::ConnectionManager, command: &s
     }
 
     let cmd_name = parts[0].to_uppercase();
+
+    // 集群模式不支持 SELECT
+    if conn.is_cluster() && cmd_name == "SELECT" {
+        return Err("Redis 集群模式不支持 SELECT 命令（仅支持 db0）".to_string());
+    }
+
     let mut cmd = redis::cmd(parts[0]);
     for part in &parts[1..] {
         cmd.arg(part);
@@ -405,12 +547,19 @@ pub async fn execute_query(conn: &mut redis::aio::ConnectionManager, command: &s
 }
 
 /// 执行 Redis 写命令（SET, DEL 等）
-pub async fn execute_statement(conn: &mut redis::aio::ConnectionManager, command: &str) -> Result<ExecuteResult, String> {
+pub async fn execute_statement(conn: &mut RedisConn, command: &str) -> Result<ExecuteResult, String> {
     let start = std::time::Instant::now();
 
     let parts: Vec<&str> = command.split_whitespace().collect();
     if parts.is_empty() {
         return Err("命令不能为空".to_string());
+    }
+
+    let cmd_name = parts[0].to_uppercase();
+
+    // 集群模式不支持 SELECT
+    if conn.is_cluster() && cmd_name == "SELECT" {
+        return Err("Redis 集群模式不支持 SELECT 命令（仅支持 db0）".to_string());
     }
 
     let mut cmd = redis::cmd(parts[0]);

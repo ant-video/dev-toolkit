@@ -50,7 +50,7 @@ deadpool = "0.12"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 # NoSQL 驱动
-redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager", "cluster", "cluster-async"] }
 mongodb = "2.8"
 elasticsearch = "8.5.0-alpha.1"
 
