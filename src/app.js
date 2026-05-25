@@ -8295,6 +8295,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
     });
+
+    // 检查版本更新
+    setTimeout(checkUpdateOnStartup, 2000);
+
+    // 绑定检查更新按钮
+    document.getElementById('btn-check-update')?.addEventListener('click', checkUpdateManually);
 });
 
 // ==================== 文本转义/反转义 ====================
@@ -9199,5 +9205,85 @@ async function doGeneratePalette() {
         }
     } catch(e) {
         showStatus('color-palette-status', '✗ ' + e, 'error');
+    }
+}
+
+// ==================== 版本更新检查 ====================
+function simpleMarkdownToHtml(md) {
+    if (!md) return '';
+    let html = escapeHtml(md);
+    // 标题
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    // 粗体
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // 行内代码
+    html = html.replace(/`(.+?)`/g, '<code>$1</code>');
+    // 无序列表
+    html = html.replace(/^[*-] (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+    // 有序列表
+    html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    // 换行
+    html = html.replace(/\n\n/g, '</p><p>');
+    html = '<p>' + html + '</p>';
+    return html;
+}
+
+let updateInfoCache = null;
+
+function showUpdateModal(updateInfo) {
+    updateInfoCache = updateInfo;
+    document.getElementById('update-version').textContent = updateInfo.latest_version;
+    document.getElementById('current-version').textContent = updateInfo.current_version;
+    document.getElementById('release-notes').innerHTML = simpleMarkdownToHtml(updateInfo.release_notes);
+    document.getElementById('update-modal').classList.add('active');
+}
+
+function hideUpdateModal() {
+    document.getElementById('update-modal').classList.remove('active');
+    updateInfoCache = null;
+}
+
+function ignoreUpdateVersion() {
+    if (updateInfoCache) {
+        localStorage.setItem('ignoredUpdateVersion', updateInfoCache.latest_version);
+    }
+    hideUpdateModal();
+}
+
+async function openDownloadUrl() {
+    if (updateInfoCache) {
+        const { openUrl } = window.__TAURI__.opener;
+        await openUrl(updateInfoCache.download_url);
+    }
+    hideUpdateModal();
+}
+
+async function checkUpdateOnStartup() {
+    try {
+        const updateInfo = await invoke('check_update');
+        if (updateInfo.has_update) {
+            const ignoredVersion = localStorage.getItem('ignoredUpdateVersion');
+            if (ignoredVersion !== updateInfo.latest_version) {
+                showUpdateModal(updateInfo);
+            }
+        }
+    } catch (error) {
+        console.log('更新检查失败:', error);
+    }
+}
+
+async function checkUpdateManually() {
+    try {
+        const updateInfo = await invoke('check_update');
+        if (updateInfo.has_update) {
+            showUpdateModal(updateInfo);
+        } else {
+            alert('已是最新版本 v' + updateInfo.current_version);
+        }
+    } catch (error) {
+        alert('检查更新失败: ' + error);
     }
 }
