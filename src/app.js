@@ -6330,15 +6330,7 @@ function renderTableTree(tables, dbType = 'mysql') {
 
     tree.innerHTML = html;
 
-    // 绑定文件夹展开/折叠
-    tree.querySelectorAll('.db-tree-folder > .db-tree-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-            e.stopPropagation();
-            item.parentElement.classList.toggle('open');
-        });
-    });
-
-    // 绑定表点击和右键事件
+    // 绑定所有树节点事件（包括文件夹展开/折叠和表点击）
     bindTreeEvents(tree);
 }
 
