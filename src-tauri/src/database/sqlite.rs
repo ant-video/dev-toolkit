@@ -5,8 +5,9 @@ use std::time::Instant;
 /// 构建 SQLite 连接字符串
 pub fn build_connection_string(config: &ConnectionConfig) -> String {
     // SQLite 使用文件路径作为连接字符串
-    // 数据库名就是文件路径
-    format!("sqlite:{}?mode=rwc", config.database)
+    // Windows 下将反斜杠转为正斜杠，避免 C:\ 中的冒号被 URI 解析器误读
+    let path = config.database.replace('\\', "/");
+    format!("sqlite:{}?mode=rwc", path)
 }
 
 /// 测试 SQLite 连接
