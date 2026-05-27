@@ -228,6 +228,13 @@ pub fn run() {
             commands::generate_curl,
             commands::regex_visualize,
             commands::generate_color_palette,
+            // 笔记备忘录
+            commands::notes_list,
+            commands::notes_save,
+            commands::notes_delete,
+            commands::notes_set_archived,
+            commands::notes_mark_reminder_done,
+            commands::notes_export_markdown,
             // 版本更新检查
             updater::check_update,
         ])

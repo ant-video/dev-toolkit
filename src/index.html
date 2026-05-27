@@ -140,12 +140,13 @@
                 </div>
                 <div class="nav-group">
                     <div class="nav-group-title">🛠️ 系统工具</div>
+                    <a class="nav-item" data-page="notes">笔记备忘录</a>
                     <a class="nav-item" data-page="system-info">系统信息</a>
                     <a class="nav-item" data-page="env-vars">环境变量</a>
                 </div>
             </nav>
             <div class="sidebar-footer">
-                <span>v1.0.0</span>
+                <span>v1.1.0</span>
                 <button id="btn-check-update" class="btn-check-update" title="检查更新">🔄</button>
             </div>
         </aside>
@@ -1661,6 +1662,85 @@
             </div>
 
             <!-- 环境变量查看 -->
+            <!-- 笔记备忘录 -->
+            <div class="page" id="page-notes">
+                <div class="notes-page-header">
+                    <div>
+                        <h2>笔记备忘录</h2>
+                        <div class="notes-page-subtitle">本地保存的快速记录、待办和排查备忘</div>
+                    </div>
+                    <div class="notes-page-stats" id="notes-page-stats"></div>
+                </div>
+                <div class="notes-workspace">
+                    <aside class="notes-sidebar">
+                        <div class="notes-toolbar">
+                            <button class="btn btn-primary" onclick="createNote()">新建</button>
+                            <button class="btn btn-ghost" onclick="toggleNotesArchiveView()" id="notes-archive-toggle">归档</button>
+                        </div>
+                        <input type="text" id="notes-search" class="input-field" placeholder="搜索标题、正文或标签..." autocomplete="off">
+                        <div class="notes-filter-summary" id="notes-filter-summary"></div>
+                        <div id="notes-tag-filter" class="notes-tag-filter"></div>
+                        <div id="notes-list" class="notes-list"></div>
+                    </aside>
+                    <section class="notes-editor-panel">
+                        <div class="notes-empty-state" id="notes-empty-state">
+                            <div class="notes-empty-title">没有选中的笔记</div>
+                            <button class="btn btn-primary" onclick="createNote()">新建笔记</button>
+                        </div>
+                        <div class="notes-editor" id="notes-editor" hidden>
+                            <div class="notes-title-row">
+                                <input type="text" id="note-title" class="notes-title-input" placeholder="标题" autocomplete="off">
+                                <button class="btn btn-ghost notes-icon-btn" onclick="toggleNotePinned()" id="note-pin-btn" title="置顶">置顶</button>
+                            </div>
+                            <input type="text" id="note-tags" class="input-field" placeholder="标签，用逗号或空格分隔">
+                            <div class="notes-reminder-row">
+                                <label for="note-reminder-at">提醒时间</label>
+                                <input type="datetime-local" id="note-reminder-at" class="input-field">
+                                <button class="btn btn-ghost" onclick="clearNoteReminder()">清除</button>
+                            </div>
+                            <div class="notes-meta" id="note-meta"></div>
+                            <div class="notes-view-switch" role="tablist" aria-label="笔记视图">
+                                <button class="notes-view-btn active" id="notes-view-edit" onclick="setNotesViewMode('edit')" type="button">编辑</button>
+                                <button class="notes-view-btn" id="notes-view-preview" onclick="setNotesViewMode('preview')" type="button">预览</button>
+                                <button class="notes-view-btn" id="notes-view-split" onclick="setNotesViewMode('split')" type="button">分栏</button>
+                            </div>
+                            <div class="notes-view-shell" id="notes-view-shell">
+                                <div class="notes-edit-pane" id="notes-edit-pane">
+                                    <div id="note-content-editor" class="code-editor resizable notes-content-editor" data-min-h="220" data-default-h="360"></div>
+                                </div>
+                                <div class="notes-preview-pane" id="notes-preview-pane" hidden>
+                                    <div id="notes-preview" class="notes-preview"></div>
+                                </div>
+                            </div>
+                            <div class="notes-media-panel">
+                                <div class="notes-media-header">
+                                    <span>多媒体附件</span>
+                                    <label class="btn btn-ghost notes-attach-btn">
+                                        添加附件
+                                        <input type="file" id="note-attachment-input" accept="image/*,audio/*,video/*,.pdf,.txt,.md,.json" multiple hidden>
+                                    </label>
+                                </div>
+                                <div id="notes-attachments" class="notes-attachments"></div>
+                            </div>
+                            <div class="notes-toolbar-editor">
+                                <button class="btn btn-ghost btn-sm" onclick="insertAttachmentMarkdown()" title="插入附件引用">插入附件</button>
+                                <button class="btn btn-ghost btn-sm" onclick="insertMarkdownImage()" title="插入 Markdown 图片语法">图片链接</button>
+                                <span class="notes-toolbar-sep"></span>
+                                <button class="btn btn-ghost btn-sm" onclick="toggleNotesFullscreen()" title="全屏查看图片">查看图片</button>
+                            </div>
+                            <div class="notes-actions">
+                                <button class="btn btn-primary" onclick="saveCurrentNote()">保存</button>
+                                <button class="btn btn-ghost" onclick="copyNoteMarkdown()">复制 Markdown</button>
+                                <button class="btn btn-ghost" onclick="archiveCurrentNote()" id="note-archive-btn">归档</button>
+                                <button class="btn btn-danger" onclick="deleteCurrentNote()">删除</button>
+                                <span id="notes-status" class="status-msg notes-status"></span>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- 环境变量查看 -->
             <div class="page" id="page-env-vars">
                 <h2>🔧 环境变量</h2>
                 <div class="tool-card">
@@ -2482,7 +2562,13 @@
     <script src="codemirror/jump-to-line.min.js"></script>
     <script src="codemirror/dialog.min.js"></script>
     <script src="codemirror/match-highlighter.min.js"></script>
-    <script src="app.js"></script>
+    <script src="js/core.js"></script>
+    <script src="js/basic-tools.js"></script>
+    <script src="js/http-client.js"></script>
+    <script src="js/database-tool.js"></script>
+    <script src="js/notes.js"></script>
+    <script src="js/extended-tools.js"></script>
+    <script src="js/app-init.js"></script>
     <script src="xterm/xterm.js"></script>
     <script src="xterm/xterm-addon-fit.js"></script>
     <script src="xterm/xterm-addon-search.js"></script>
