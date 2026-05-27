@@ -1610,49 +1610,35 @@ pub struct ScreenCapturePermissionResult {
 pub fn check_screen_capture_permission() -> ScreenCapturePermissionResult {
     #[cfg(target_os = "macos")]
     {
-        use std::process::Command;
-
-        // 通过尝试截取一个 1x1 像素的区域来检测权限
-        // 如果没有权限，截图会失败或返回空白
-        let temp_path = std::env::temp_dir().join("dev_toolkit_permission_test.png");
-        let temp_path_str = temp_path.to_string_lossy().to_string();
-
-        // 使用 -R 参数指定区域截图（1x1 像素）
-        let result = Command::new("screencapture")
-            .args(["-x", "-R", "0", "0", "1", "1", &temp_path_str])
-            .output();
-
-        match result {
-            Ok(output) if output.status.success() => {
-                // 检查文件是否存在且大小有效
-                if let Ok(metadata) = std::fs::metadata(&temp_path) {
-                    let _ = std::fs::remove_file(&temp_path);
-                    if metadata.len() > 0 {
-                        // 进一步验证：读取图片并检查是否是有效图片
-                        // 如果没有屏幕录制权限，screencapture 会创建一个桌面壁纸的截图
-                        // 我们无法完全检测，但至少文件创建成功了
-                        return ScreenCapturePermissionResult {
-                            has_permission: true,
-                            message: "屏幕录制权限已授权".to_string(),
-                        };
-                    }
-                }
-                ScreenCapturePermissionResult {
-                    has_permission: false,
-                    message: "无法验证屏幕录制权限，请确保已在系统设置中授权".to_string(),
-                }
+        // 使用 macOS 原生 API CGPreflightScreenCaptureAccess() 检测权限
+        // 该 API 在 macOS 10.15+ 可用，直接查询 app 的屏幕录制授权状态
+        unsafe {
+            extern "C" {
+                fn CGPreflightScreenCaptureAccess() -> bool;
+                fn CGRequestScreenCaptureAccess() -> bool;
             }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                ScreenCapturePermissionResult {
-                    has_permission: false,
-                    message: format!("截图权限检测失败: {}", stderr),
-                }
+
+            let has_access = CGPreflightScreenCaptureAccess();
+            if has_access {
+                return ScreenCapturePermissionResult {
+                    has_permission: true,
+                    message: "屏幕录制权限已授权".to_string(),
+                };
             }
-            Err(e) => ScreenCapturePermissionResult {
+
+            // 尝试请求权限（会弹出系统权限对话框）
+            let requested = CGRequestScreenCaptureAccess();
+            if requested {
+                return ScreenCapturePermissionResult {
+                    has_permission: true,
+                    message: "屏幕录制权限已授权".to_string(),
+                };
+            }
+
+            ScreenCapturePermissionResult {
                 has_permission: false,
-                message: format!("无法执行截图命令: {}", e),
-            },
+                message: "缺少屏幕录制权限！请在「系统设置 > 隐私与安全性 > 屏幕录制」中授权 DevToolkit，然后重启应用。".to_string(),
+            }
         }
     }
 
